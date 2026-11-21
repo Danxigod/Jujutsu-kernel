@@ -442,7 +442,9 @@ adb shell "echo off > /proc/oc_stereo"              # vuelve al comportamiento n
 adb shell "echo on  > /proc/oc_stereo"              # reactiva la salida dual
 ```
 
-`gain` y `lolgain` van de 0 a 20 (0 = +8 dB ... 20 = −12 dB; `lolgain=-1` = "el que ponga el HAL").
+`gain` y `lolgain` van de 0 a 18 (0 = +8 dB ... 17 = −10 dB, 18 = silencio;
+`lolgain=-1` = "el que ponga el HAL"). El valor por defecto de `gain` es 0, es
+decir **+8 dB, el tope del amplificador del auricular**.
 
 ### Scripts de apoyo
 

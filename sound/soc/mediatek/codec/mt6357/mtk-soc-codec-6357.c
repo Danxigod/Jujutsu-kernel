@@ -3390,11 +3390,11 @@ static int PMIC_REG_CLEAR_Get(struct snd_kcontrol *kcontrol,
  *
  * El mux de entrada del HS (AUDHSMUXINPUTSEL), el del altavoz
  * (AUDLOLMUXINPUTSEL) y sus ganancias son ajustables en caliente por
- * /proc/oc_stereo: mux=0..3, lolmux=0..3, gain=0..20, lolgain=-1..20.
+ * /proc/oc_stereo: mux=0..3, lolmux=0..3, gain=0..18, lolgain=-1..18.
  *
- * La ganancia del auricular va de 0 (+8 dB, el maximo del PGA) a 20 (-12 dB);
- * por defecto se deja en +8 dB para que el auricular se oiga fuerte. La del
- * altavoz sigue al HAL (lolgain=-1) para que el volumen de la musica
+ * La ganancia va de 0 (+8 dB, el maximo del PGA) a 17 (-10 dB) y 18 es el
+ * silencio; por defecto el auricular se deja en +8 dB para que se oiga fuerte.
+ * La del altavoz sigue al HAL (lolgain=-1) para que el volumen de la musica
  * funcione igual de siempre.
  * ======================================================================== */
 #define OC_STEREO_PROC_NAME "oc_stereo"
@@ -3414,23 +3414,23 @@ static int oc_stereo_hs_state = OC_HS_OFF;
 static bool oc_stereo_spk_on;
 static bool oc_stereo_hal_hs_on;	/* el HAL quiere el auricular encendido */
 
-/* El mixer de ganancia va de 0 (+8 dB) a 20 (-12 dB); 0x1f es el valor de
- * silencio (-40 dB). Los indices 21..30 no existen. */
-#define OC_GAIN_MAX 20
+/* Escala del mixer del driver: 0 = +8 dB ... 17 = -10 dB y 18 = -40 dB, que es
+ * el valor de silencio (DL_GAIN_N_40DB). El ultimo paso valido del registro
+ * es el 20 (-12 dB), que el mixer del driver no usa. */
+#define OC_GAIN_MAX 18
 #define OC_GAIN_MUTE DL_GAIN_N_40DB
+#define OC_GAIN_REG_MAX 20
 
 static bool oc_stereo_gain_valid(unsigned int idx)
 {
-	return idx <= OC_GAIN_MAX || idx == OC_GAIN_MUTE;
+	return idx <= OC_GAIN_REG_MAX || idx == OC_GAIN_MUTE;
 }
 
 static unsigned int oc_stereo_gain_reg(int idx)
 {
-	if (idx < 0)
+	if (idx < 0 || idx >= OC_GAIN_MAX)
 		return OC_GAIN_MUTE;
-	if (idx <= OC_GAIN_MAX)
-		return (unsigned int)idx;
-	return OC_GAIN_MUTE;
+	return (unsigned int)idx;
 }
 
 /* Rampa de ganancia del auricular: se cambia el registro de 5 bits paso a
@@ -3488,7 +3488,7 @@ static void oc_stereo_hs_enable(void)
 	/* Ganancia con rampa para que no chasquee */
 	oc_stereo_gain_ramp(oc_stereo_gain_reg(oc_stereo_gain));
 	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_HSOUTL] =
-	    oc_stereo_gain;
+	    oc_stereo_gain_reg(oc_stereo_gain);
 	mCodec_data->mAudio_Ana_DevicePower
 	    [AUDIO_ANALOG_DEVICE_OUT_EARPIECEL] = true;
 	oc_stereo_hs_state = OC_HS_BY_OC;
@@ -4326,6 +4326,10 @@ static int Handset_PGA_Set(struct snd_kcontrol *kcontrol,
 		index = DL_GAIN_N_40DB;
 	Ana_Set_Reg(ZCD_CON3, index, 0x001f);
 	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_HSOUTL] = index;
+	/* En modo estereo manda la ganancia que hemos puesto nosotros, para que
+	 * el HAL no nos la baje cuando cambia el volumen del auricular. */
+	if (oc_stereo_master && oc_stereo_spk_on)
+		oc_stereo_hs_enable();
 	return 0;
 }
 static int Headset_PGAL_Get(struct snd_kcontrol *kcontrol,
