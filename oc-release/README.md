@@ -9,21 +9,55 @@ y el `boot.img` real extraído de la partición `boot`).
 
 ---
 
-## 0. Lo primero: qué hacer (3 pasos)
+## 0. ESTADO: ya está flasheado y funcionando
+
+**La imagen que está en el móvil ahora mismo es `oc-release/boot_oc_final.img`** (kernel OC +
+ramdisk y DTB originales de MIUI). Medido en el propio teléfono:
+
+| | MIUI de fábrica | Ahora (kernel OC) |
+|---|---|---|
+| `scaling_available_frequencies` | 2301000 … | **2401000 …** |
+| `cpuinfo_max_freq` | 2301000 | **2401000** |
+| CPU bajo carga | 2301 MHz | **2401 MHz sostenidos** |
+| GPU bajo carga | 900 MHz, riel VCORE **bajo** (650 mV) | **900 MHz, `vcore opp = 0` → 800 mV** |
+| Riel VCORE medido | 800000 uv | **800000 uv (escalón alto)** |
+| Throttle CPU | 65 °C | **90 °C** |
+| `uname -a` | `4.19.127-perf-g7288046673d5` (MIUI) | `4.19.127-perf-g7288046673d5` (nuestro, mismo vermagic) |
+
+Temperatura en carga sostenida de CPU: 46-62 °C (muy por debajo del umbral de 90 °C).
+El riel VCORE alto es lo que quita los artifacts: en stock la GPU subía a 900 MHz con el
+voltaje más bajo de la tabla.
+
+**Magisk NO se pudo instalar** (ver sección 8). El overclock **no necesita root**: está
+compilado en las tablas del kernel.
+
+Rollback: `fastboot flash boot oc-release/backup/boot_stock.img`.
+
+**P3 (950 MHz) se probó y se descartó**: la GPU mantenía el riel alto (800 mV, `vcore opp = 0`)
+pero aparecían glitches de render visibles. Es el límite del silicio, no de la configuración.
+La imagen P2 que hay flasheada es `oc-release/boot_oc_final.img`; la de P3 queda guardada en
+`oc-release/boot_oc_p3.img` por si quieres retestearlo en otra unidad.
+
+---
+
+## 0-bis. Cómo se llegó a `boot_oc_final.img`
 
 ```bash
 # 1) Compilar el kernel parcheado (GitHub Actions -> artefacto "Image.gz-...")
 #    Ver seccion 4
 
 # 2) Meter el kernel nuevo en el boot.img original (solo cambia el kernel;
-#    el ramdisk y el DTB del fabricante se conservan byte a byte)
-python oc-release/scripts/repack-boot.py \
+#    el ramdisk y el DTB del fabricante se conservan byte a byte).
+#    OJO: usar --shift. El modo normal rellena el hueco del kernel con ceros,
+#    y magiskboot no sabe desempaquetar un gzip con relleno detras (error
+#    "invalid gzip header"). --shift deja el kernel con su tamano real.
+python oc-release/scripts/repack-boot.py --shift \
     oc-release/backup/boot_stock.img \
     Image.gz \
-    boot_oc.img
+    oc-release/boot_oc_final.img
 
 # 3) Flashear
-bash oc-release/scripts/flash.sh boot_oc.img
+bash oc-release/scripts/flash.sh oc-release/boot_oc_final.img
 ```
 
 Rollback en cualquier momento: `fastboot flash boot oc-release/backup/boot_stock.img`.
@@ -133,6 +167,16 @@ Orden recomendado de pruebas: **P2** (si va bien) → **P3** (si quieres rajar l
 **P1** (si algo se reinicia o hay artifacts: mismo voltaje, sin subir frecuencias).
 P0 = volver a stock sin tocar nada.
 
+### Resultado real en este móvil (M2006C3MG)
+
+| Perfil | Resultado medido |
+|---|---|
+| **P2** (900 MHz, riel alto) | **Correcto.** Sin artifacts, CPU a 2401 MHz, 46-64 °C en carga, 0 throttles. **Este es el que queda flasheado.** |
+| P3 (950 MHz, riel alto) | **Descartado por este lote.** Compilado, flasheado y medido: la GPU se sostenía a 950 000 kHz con `current vcore opp = 0` y riel real de **800 000 uv** (16 de 17 muestras), o sea **no era un problema de voltaje**; aun así aparecieron **glitches de render visibles** (texturas que parpadean, polígonos que aparecen un frame). Es el límite del silicio a 950 MHz, no de la configuración. |
+
+La GPU a 950 MHz es el techo del driver (`POST_DIV_4_MAX_FREQ`), y el riel alto ya estaba
+puesto, así que subir más no es posible desde la tabla.
+
 ---
 
 ## 3. El DTB del fabricante NO se toca (y por qué no hace falta)
@@ -171,28 +215,32 @@ El repo `jujutsu-kernel` trae el workflow **"MIUI OC build (angelica)"**
 
 1. Aplica el perfil OC (`oc-release/scripts/set-profile.sh`).
 2. Baja `SUBLEVEL` a 127 y pone `CONFIG_LOCALVERSION="-perf-g7288046673d5"`.
-3. Usa `oc-release/config/device-config.txt` = el `/proc/config.gz` **exacto** del móvil
-   (hace falta porque `CONFIG_MODVERSIONS=y` y los CRC de los símbolos dependen de la config).
-4. Compila con clang 11.0.1 (el mismo `CONFIG_CLANG_VERSION=110001` del móvil) y sube
-   `Image.gz` + `build.log` + `.config` como artefactos.
+3. Usa el **defconfig del repo** (`blossom_noksu_defconfig`) y no la config del móvil: este
+   árbol es 4.19.275 y el kernel de MIUI es 4.19.127, así que la config de MIUI no compila
+   aquí (falla en `kernel/module.c`, `virtio` y el driver GPS). Con el defconfig,
+   `CONFIG_MODVERSIONS` queda en `n`, y entonces los módulos de `/vendor` validan **solo el
+   vermagic**, que es justo lo que falseamos.
+4. Compila con clang 13.0.1 (crdroid r428724, el que usa el repo) + gcc 4.9 y sube
+   `Image.gz` + `build.log` + `kernel.config` como artefactos.
 
-La rama `oc-miui` del repo ya lleva el workflow y los scripts. Para publicarla:
+La rama `oc-miui` vive en el **fork** `Danxigod/Jujutsu-kernel` (la cuenta de GitHub que
+tienes autenticada no tiene escritura en `Iam-nishan/Jujutsu-kernel`). Para publicarla:
 
 ```bash
 cd jujutsu-kernel
-git checkout oc-miui
-git push origin oc-miui
+git push fork oc-miui
 ```
 
 Luego en GitHub → *Actions* → **MIUI OC build (angelica)** → *Run workflow* (perfil `P2`,
-config `oem`) → descarga el artefacto `Image.gz-<sha>`.
+config `defconfig`) → descarga el artefacto `Image.gz-<sha>`.
 
 El workflow **falla si la versión no es exactamente** `4.19.127-perf-g7288046673d5`, porque si no
-coincide los módulos de MIUI (wifi, cámara…) no cargan.
+coincide los módulos de MIUI (wifi, cámara…) no cargan. El check se hace dos veces: con
+`make kernelrelease` y con el banner `Linux version ...` que queda dentro del `Image.gz`.
 
 ### Compilar en local (opcional)
 
-Hace falta clang 11.0.1 + gcc 4.9 (los de las instrucciones del repo) y `make`:
+Hace falta clang 13.0.1 (crdroid r428724) + gcc 4.9 (los de las instrucciones del repo) y `make`:
 
 ```bash
 cd jujutsu-kernel
@@ -300,7 +348,52 @@ alcanza el PLL de este lote → quédate en P1.
 
 ---
 
-## 8. Rollback
+## 8. Magisk: por qué NO se instaló (y por qué no hace falta)
+
+Se parcheó la imagen **con Magisk v31.1** usando el `boot_patch.sh` oficial del APK (los binarios
+ARM64 se ejecutan en el propio móvil por adb, no hacen falta root ni WSL). El parcheo fue
+correcto: `magiskinit` y `.backup/.magisk` están en el ramdisk, el kernel OC intacto y el DTB
+del fabricante byte a byte igual.
+
+**El móvil hizo bootloop.** El log completo está en `logs/pstore_bootloop_magisk.log`. El kernel
+arranca bien (detecta la MT6765, la DRAM, la VCore, el táctil, el cargador…) y muere en
+`/init`:
+
+```
+[    1.562020] Run /init as init process
+[    1.590243] Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000100
+CPU: 3 PID: 1 Comm: init (Not tainted 4.19.127-perf-g7288046673d5)
+```
+
+La causa es el *verity*: Magisk no consigue quitarlo y por eso no puede montar su overlay sobre
+`/system`.
+
+```
+device_mapper: ioctl: unable to remove open device, dm-verity
+device-mapper: verity-avb: AVB error (android_verity ...)
+```
+
+En el móvil:
+
+```
+$ magiskboot dtb dtb patch     -> rc=1   (no encuentra fstab que parchear en el DTB)
+```
+
+Magisk parchea el *verity* en el DTB (fstab de las particiones legacy) y en el fstab del ramdisk.
+En Android 11 el fstab está en `/vendor/etc/fstab`, no en el DTB ni en el ramdisk, así que ambos
+parches fallan, `magiskinit` no puede montar su overlay sobre `/system` y muere → panic.
+
+**El overclock no necesita root**: está compilado en las tablas del kernel (`c65Tbl`, OPP de la
+GPU, umbrales térmicos). Root solo haría falta para ajustes en runtime.
+
+Si algún día quieres root, las vías son: (a) Magisk desde recovery (el camino oficial, que
+parchea el boot en el propio móvil), (b) una versión más nueva de Magisk que sepa quitar el
+`dm-verity` de Android 11, o (c) parchear a mano `/vendor/etc/fstab` para quitarle el flag
+`verity` a `/system` antes de aplicar Magisk.
+
+---
+
+## 9. Rollback
 
 ```bash
 fastboot flash boot oc-release/backup/boot_stock.img
@@ -313,7 +406,7 @@ Si el móvil no arranca tras flashear: entra en recovery (`adb reboot recovery`)
 
 ---
 
-## 9. Seguridad (léelo, no es opcional)
+## 10. Seguridad (léelo, no es opcional)
 
 - El límite de 117 °C (TRIP_0) es el del silicio: si lo alcanzas, el móvil se apaga. Con el cooler
   pegado a la tapa, 90 °C de objetivo están bien, pero **vigila la batería**: si se hincha o el
@@ -325,22 +418,33 @@ Si el móvil no arranca tras flashear: entra en recovery (`adb reboot recovery`)
 - Este parche **no** sube la CPU más allá de 2401 MHz porque el PLL del L-cluster no da más, ni la
   GPU más allá de 950 MHz porque el divisor del driver no da más. Eso no se puede forzar desde la
   tabla: requiere tocar el driver de clocks (y el firmware SCP), con riesgo real de cuelgue.
+- **Las actualizaciones OTA de MIUI dejan de funcionar** mientras el kernel no sea el de fábrica.
 
 ---
 
-## 10. Qué hay en esta carpeta
+## 11. Qué hay en esta carpeta
 
 ```
+boot_oc_final.img                 *** LA IMAGEN QUE FUNCIONA *** (la que está flasheada)
+boot_oc.img                       misma cosa con los offsets del stock (kernel relleno con ceros)
+                                   -> no se ha probado: magiskboot no la sabe desempaquetar
+magisk_patched.img                boot_oc + Magisk v31.1 -> bootloop (ver seccion 8)
+Image.gz                          el kernel del artefacto del CI (11.282.231 bytes)
+Magisk-v31.1.apk                  APK oficial de Magisk (parcheo con el boot_patch.sh oficial)
+magisk-bin/                       binarios extraídos del APK (magiskboot, magiskinit, ...)
 mt6765-oc-overvolt-thermal.patch   el parche (5 archivos)
-config/device-config.txt           config exacta del kernel de MIUI que corre en el móvil
-backup/boot_stock.img              boot.img original del móvil (para empaquetar y para rollback)
-backup/kernel_stock.gz             kernel original extraído del boot.img (para probar el empaquetado)
-scripts/set-profile.sh             cambia de perfil (P0/P1/P2/P3) en el código
-scripts/build-kernel.sh            build local con todo lo necesario para MIUI
-scripts/repack-boot.py             mete el kernel nuevo en el boot.img conservando ramdisk y DTB
-scripts/flash.sh                   fastboot flash (o escritura desde recovery)
-scripts/monitor.sh                 monitor en vivo (temp, freq, volt, throttling)
-scripts/perfil-juego.sh            tuning en runtime (governor + GPU fija) — necesita root
+config/device-config.txt          config exacta del kernel de MIUI que corre en el móvil
+backup/boot_stock.img             boot.img original del móvil (para empaquetar y para rollback)
+backup/kernel_stock.gz            kernel original extraído del boot.img (para probar el empaquetado)
+logs/pstore_bootloop_magisk.log   log del kernel en el arranque fallido con Magisk
+scripts/set-profile.sh            cambia de perfil (P0/P1/P2/P3) en el código
+scripts/build-kernel.sh           build local con todo lo necesario para MIUI
+scripts/repack-boot.py            mete el kernel nuevo en el boot.img conservando ramdisk y DTB
+scripts/flash.sh                  fastboot flash (o escritura desde recovery)
+scripts/monitor.sh                monitor en vivo (temp, freq, volt, throttling)
+scripts/magisk-patch.sh           parchea el boot con Magisk desde el propio móvil (adb)
+scripts/fetch-ci.sh               descarga el Image.gz del artefacto del CI
+scripts/perfil-juego.sh           tuning en runtime (governor + GPU fija) — necesita root
 ```
 
 Nota: el parche lleva comentarios explicativos dentro del código; `set-profile.sh` sólo reescribe
