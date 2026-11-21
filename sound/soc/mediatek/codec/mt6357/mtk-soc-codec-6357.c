@@ -3514,12 +3514,19 @@ static void oc_stereo_hs_enable(void)
 	oc_bias_apply();
 	/* Sin proteccion de cortocircuito en el auricular */
 	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0010, 0x0010);
-	/* Auricular: STB enhance -> bias -> nucleo, con el mux de entrada */
-	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090 | mux, 0xffff);
-	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0092 | mux, 0xffff);
-	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0093 | mux, 0xffff);
-	/* Ganancia con rampa para que no chasquee */
+	/* Auricular: STB enhance -> bias -> nucleo. Igual que en el camino de voz
+	 * del driver, el mux de entrada se deja ABIERTO (0x00) durante todo el
+	 * arranque del amplificador y se conecta al DAC al final. Conectar el mux
+	 * antes de que el amplificador este estable mete un burst de ruido en la
+	 * salida (se oye como una estatica al empezar a sonar). */
+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090, 0xffff);
+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0092, 0xffff);
+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0093, 0xffff);
+	/* Ganancia con rampa para que no chasquee (arranca en silencio) */
+	Ana_Set_Reg(ZCD_CON3, DL_GAIN_N_40DB, 0x001f);
 	oc_stereo_gain_ramp(oc_stereo_gain_reg(oc_stereo_gain));
+	/* Conectamos por fin el mux del auricular al DAC */
+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0093 | mux, 0xffff);
 	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_HSOUTL] =
 	    oc_stereo_gain_reg(oc_stereo_gain);
 	mCodec_data->mAudio_Ana_DevicePower

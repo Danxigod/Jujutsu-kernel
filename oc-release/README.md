@@ -455,6 +455,21 @@ El auricular es un altavoz diminuto y el codec tiene **tres** topes en su cadena
      reposo del amplificador. El valor se reaplica cada vez que el driver reinicializa
      los registros del codec, así que no se pierde al cambiar el volumen.
 
+### La estática al empezar a sonar
+
+La primera versión del parche conectaba el **mux** del auricular al DAC en el mismo paso en el
+que encendía el amplificador. Con el DAC ya a full scale y el amplificador del auricular sin
+terminar de arrancar, eso metía un burst de ruido ("estática") en las dos salidas al empezar
+la música.
+
+Ahora la secuencia es **exactamente la del camino de voz del driver original**:
+
+1. silenciar la salida (`ZCD_CON3 = 0x1f`) y abrir el pull-down (`AUDDEC_ANA_CON7`),
+2. encender STB enhance → bias → núcleo **con el mux abierto** (`AUDDEC_ANA_CON3` = 0x0090,
+   0x0092, 0x0093),
+3. rampa de ganancia desde el silencio hasta el valor elegido,
+4. **y solo al final** conectar el mux al DAC (`AUDDEC_ANA_CON3` = 0x009b).
+
 ### Ajuste en caliente (sin reiniciar, sin root)
 
 ```bash
@@ -487,6 +502,7 @@ scripts/play.sh                # deja sonando el fichero de prueba y comprueba s
 scripts/stereo-tune.sh         # aplica cambios a /proc/oc_stereo y muestra el estado
 scripts/stereo-sweep.sh        # recorre las 16 combinaciones de mux (arriba/abajo)
 scripts/make-stereo-test.py    # genera los WAV de prueba (estéreo, solo L, solo R)
+scripts/stereo-ab.sh           # aplica una tanda de ajustes y deja sonando la prueba
 ```
 
 ---

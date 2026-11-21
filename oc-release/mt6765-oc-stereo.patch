@@ -1,5 +1,5 @@
 diff --git a/sound/soc/mediatek/codec/mt6357/mtk-soc-codec-6357.c b/sound/soc/mediatek/codec/mt6357/mtk-soc-codec-6357.c
-index 2939b4351..92133c5c3 100644
+index 2939b4351..1eebb9b68 100644
 --- a/sound/soc/mediatek/codec/mt6357/mtk-soc-codec-6357.c
 +++ b/sound/soc/mediatek/codec/mt6357/mtk-soc-codec-6357.c
 @@ -57,6 +57,10 @@
@@ -102,7 +102,7 @@ index 2939b4351..92133c5c3 100644
  	/* Set HS STB enhance circuits */
  	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090, 0xffff);
  	/* Enable HS driver bias circuits */
-@@ -3370,6 +3387,281 @@ static int PMIC_REG_CLEAR_Get(struct snd_kcontrol *kcontrol,
+@@ -3370,6 +3387,288 @@ static int PMIC_REG_CLEAR_Get(struct snd_kcontrol *kcontrol,
  	return 0;
  }
  
@@ -233,12 +233,19 @@ index 2939b4351..92133c5c3 100644
 +	oc_bias_apply();
 +	/* Sin proteccion de cortocircuito en el auricular */
 +	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0010, 0x0010);
-+	/* Auricular: STB enhance -> bias -> nucleo, con el mux de entrada */
-+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090 | mux, 0xffff);
-+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0092 | mux, 0xffff);
-+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0093 | mux, 0xffff);
-+	/* Ganancia con rampa para que no chasquee */
++	/* Auricular: STB enhance -> bias -> nucleo. Igual que en el camino de voz
++	 * del driver, el mux de entrada se deja ABIERTO (0x00) durante todo el
++	 * arranque del amplificador y se conecta al DAC al final. Conectar el mux
++	 * antes de que el amplificador este estable mete un burst de ruido en la
++	 * salida (se oye como una estatica al empezar a sonar). */
++	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090, 0xffff);
++	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0092, 0xffff);
++	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0093, 0xffff);
++	/* Ganancia con rampa para que no chasquee (arranca en silencio) */
++	Ana_Set_Reg(ZCD_CON3, DL_GAIN_N_40DB, 0x001f);
 +	oc_stereo_gain_ramp(oc_stereo_gain_reg(oc_stereo_gain));
++	/* Conectamos por fin el mux del auricular al DAC */
++	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0093 | mux, 0xffff);
 +	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_HSOUTL] =
 +	    oc_stereo_gain_reg(oc_stereo_gain);
 +	mCodec_data->mAudio_Ana_DevicePower
@@ -384,7 +391,7 @@ index 2939b4351..92133c5c3 100644
  static void Voice_Amp_Change(bool enable)
  {
  	if (enable) {
-@@ -3405,12 +3697,12 @@ static void Voice_Amp_Change(bool enable)
+@@ -3405,12 +3704,12 @@ static void Voice_Amp_Change(bool enable)
  			/* Disable AUD_ZCD */
  			Hp_Zcd_Enable(false);
  			/* Enable IBIST */
@@ -399,7 +406,7 @@ index 2939b4351..92133c5c3 100644
  			/* Set HS STB enhance circuits */
  			Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090, 0xffff);
  			/* Enable HS driver bias circuits */
-@@ -3492,7 +3784,13 @@ static int Voice_Amp_Set(struct snd_kcontrol *kcontrol,
+@@ -3492,7 +3791,13 @@ static int Voice_Amp_Set(struct snd_kcontrol *kcontrol,
  	if ((ucontrol->value.integer.value[0] == true) &&
  	    (mCodec_data->mAudio_Ana_DevicePower
  		     [AUDIO_ANALOG_DEVICE_OUT_EARPIECEL] == false)) {
@@ -414,7 +421,7 @@ index 2939b4351..92133c5c3 100644
  		mCodec_data->mAudio_Ana_DevicePower
  			[AUDIO_ANALOG_DEVICE_OUT_EARPIECEL] =
  		    ucontrol->value.integer.value[0];
-@@ -3502,7 +3800,14 @@ static int Voice_Amp_Set(struct snd_kcontrol *kcontrol,
+@@ -3502,7 +3807,14 @@ static int Voice_Amp_Set(struct snd_kcontrol *kcontrol,
  		mCodec_data->mAudio_Ana_DevicePower
  			[AUDIO_ANALOG_DEVICE_OUT_EARPIECEL] =
  		    ucontrol->value.integer.value[0];
@@ -430,7 +437,7 @@ index 2939b4351..92133c5c3 100644
  	}
  	mutex_unlock(&Ana_Power_Mutex);
  	return 0;
-@@ -3543,12 +3848,12 @@ static void Speaker_Amp_Change(bool enable)
+@@ -3543,12 +3855,12 @@ static void Speaker_Amp_Change(bool enable)
  		/* Disable AUD_ZCD */
  		Hp_Zcd_Enable(false);
  		/* Enable IBIST */
@@ -445,7 +452,7 @@ index 2939b4351..92133c5c3 100644
  		/* Set LO STB enhance circuits */
  		Ana_Set_Reg(AUDDEC_ANA_CON4, 0x0110, 0xffff);
  		/* Enable LO driver bias circuits */
-@@ -3628,9 +3933,17 @@ static int Speaker_Amp_Set(struct snd_kcontrol *kcontrol,
+@@ -3628,9 +3940,17 @@ static int Speaker_Amp_Set(struct snd_kcontrol *kcontrol,
  		mCodec_data->mAudio_Ana_DevicePower
  			[AUDIO_ANALOG_DEVICE_OUT_SPEAKERL] =
  		    ucontrol->value.integer.value[0];
@@ -463,7 +470,7 @@ index 2939b4351..92133c5c3 100644
  		mCodec_data->mAudio_Ana_DevicePower
  			[AUDIO_ANALOG_DEVICE_OUT_SPEAKERL] =
  		    ucontrol->value.integer.value[0];
-@@ -3801,12 +4114,12 @@ static void Headset_Speaker_Amp_Change(bool enable)
+@@ -3801,12 +4121,12 @@ static void Headset_Speaker_Amp_Change(bool enable)
  		/* Disable AUD_ZCD */
  		Hp_Zcd_Enable(false);
  		/* Enable IBIST */
@@ -478,7 +485,7 @@ index 2939b4351..92133c5c3 100644
  		/* Set HPP/N STB enhance circuits */
  		Ana_Set_Reg(AUDDEC_ANA_CON2, 0x33, 0x00ff);
  		/* No Pull-down HPL/R to AVSS28_AUD */
-@@ -4021,6 +4334,10 @@ static int Lineout_PGAL_Set(struct snd_kcontrol *kcontrol,
+@@ -4021,6 +4341,10 @@ static int Lineout_PGAL_Set(struct snd_kcontrol *kcontrol,
  		index = DL_GAIN_N_40DB;
  	Ana_Set_Reg(ZCD_CON1, index, 0x001f);
  	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_LINEOUTL] = index;
@@ -489,7 +496,7 @@ index 2939b4351..92133c5c3 100644
  	return 0;
  }
  static int Lineout_PGAR_Get(struct snd_kcontrol *kcontrol,
-@@ -4050,6 +4367,10 @@ static int Lineout_PGAR_Set(struct snd_kcontrol *kcontrol,
+@@ -4050,6 +4374,10 @@ static int Lineout_PGAR_Set(struct snd_kcontrol *kcontrol,
  		index = DL_GAIN_N_40DB;
  	Ana_Set_Reg(ZCD_CON1, index << 7, 0x0f80);
  	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_LINEOUTR] = index;
@@ -500,7 +507,7 @@ index 2939b4351..92133c5c3 100644
  	return 0;
  }
  static int Handset_PGA_Get(struct snd_kcontrol *kcontrol,
-@@ -4079,6 +4400,10 @@ static int Handset_PGA_Set(struct snd_kcontrol *kcontrol,
+@@ -4079,6 +4407,10 @@ static int Handset_PGA_Set(struct snd_kcontrol *kcontrol,
  		index = DL_GAIN_N_40DB;
  	Ana_Set_Reg(ZCD_CON3, index, 0x001f);
  	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_HSOUTL] = index;
@@ -511,7 +518,7 @@ index 2939b4351..92133c5c3 100644
  	return 0;
  }
  static int Headset_PGAL_Get(struct snd_kcontrol *kcontrol,
-@@ -5913,6 +6238,7 @@ static int mt6357_component_probe(struct snd_soc_component *component)
+@@ -5913,6 +6245,7 @@ static int mt6357_component_probe(struct snd_soc_component *component)
  	efuse_current_calibrate =
  		read_efuse_hp_impedance_current_calibration();
  	mInitCodec = true;
