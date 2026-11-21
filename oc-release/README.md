@@ -11,10 +11,11 @@ y el `boot.img` real extraído de la partición `boot`).
 
 ## 0. ESTADO: ya está flasheado y funcionando
 
-**La imagen que está en el móvil ahora mismo es `oc-release/boot_oc_final.img`** (kernel OC +
-ramdisk y DTB originales de MIUI). Medido en el propio teléfono:
+**La imagen que está en el móvil ahora mismo es `oc-release/boot_oc_stereo_v2.img`** (kernel OC
+perfil P2 + salida dual de audio: altavoz **y** auricular a la vez, con el auricular al máximo
+del PGA, +8 dB). Medido en el propio teléfono:
 
-| | MIUI de fábrica | Ahora (kernel OC) |
+| | MIUI de fábrica | Ahora (kernel OC + estéreo) |
 |---|---|---|
 | `scaling_available_frequencies` | 2301000 … | **2401000 …** |
 | `cpuinfo_max_freq` | 2301000 | **2401000** |
@@ -23,6 +24,7 @@ ramdisk y DTB originales de MIUI). Medido en el propio teléfono:
 | Riel VCORE medido | 800000 uv | **800000 uv (escalón alto)** |
 | Throttle CPU | 65 °C | **90 °C** |
 | `uname -a` | `4.19.127-perf-g7288046673d5` (MIUI) | `4.19.127-perf-g7288046673d5` (nuestro, mismo vermagic) |
+| Salida de audio | solo el altavoz | **altavoz + auricular** (`/proc/oc_stereo`: `state=2`, `gain=0` = +8 dB) |
 
 Temperatura en carga sostenida de CPU: 46-62 °C (muy por debajo del umbral de 90 °C).
 El riel VCORE alto es lo que quita los artifacts: en stock la GPU subía a 900 MHz con el
@@ -31,12 +33,13 @@ voltaje más bajo de la tabla.
 **Magisk NO se pudo instalar** (ver sección 8). El overclock **no necesita root**: está
 compilado en las tablas del kernel.
 
-Rollback: `fastboot flash boot oc-release/backup/boot_stock.img`.
+Rollback: `fastboot flash boot oc-release/backup/boot_stock.img` (stock) o
+`oc-release/boot_oc_stereo.img` (OC P2 + estéreo con el auricular a 0 dB).
 
 **P3 (950 MHz) se probó y se descartó**: la GPU mantenía el riel alto (800 mV, `vcore opp = 0`)
 pero aparecían glitches de render visibles. Es el límite del silicio, no de la configuración.
-La imagen P2 que hay flasheada es `oc-release/boot_oc_final.img`; la de P3 queda guardada en
-`oc-release/boot_oc_p3.img` por si quieres retestearlo en otra unidad.
+La imagen P3 queda guardada en `oc-release/boot_oc_p3.img` por si quieres retestearlo en otra
+unidad.
 
 ---
 
@@ -489,11 +492,13 @@ Si el móvil no arranca tras flashear: entra en recovery (`adb reboot recovery`)
 ## 11. Qué hay en esta carpeta
 
 ```
-boot_oc_final.img                 *** LA IMAGEN QUE FUNCIONA *** (la que está flasheada)
+boot_oc_stereo_v2.img             *** LA IMAGEN QUE FUNCIONA *** (OC P2 + estéreo, +8 dB arriba)
+boot_oc_stereo.img                OC P2 + estéreo con el auricular a 0 dB (la anterior)
+boot_oc_final.img                 OC P2 sin estéreo (para comparar)
 boot_oc.img                       misma cosa con los offsets del stock (kernel relleno con ceros)
                                    -> no se ha probado: magiskboot no la sabe desempaquetar
 magisk_patched.img                boot_oc + Magisk v31.1 -> bootloop (ver seccion 8)
-Image.gz                          el kernel del artefacto del CI (11.282.231 bytes)
+Image.gz                          el kernel del artefacto del CI (11.283.790 bytes)
 Magisk-v31.1.apk                  APK oficial de Magisk (parcheo con el boot_patch.sh oficial)
 magisk-bin/                       binarios extraídos del APK (magiskboot, magiskinit, ...)
 mt6765-oc-overvolt-thermal.patch   el parche (5 archivos)
