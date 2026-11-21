@@ -128,6 +128,19 @@ enum {
 };
 #define DL_GAIN_N_40DB_REG (DL_GAIN_N_40DB << 7 | DL_GAIN_N_40DB)
 #define DL_GAIN_REG_MASK 0x0f9f
+
+/* AUDDEC_ANA_CON10 tiene cuatro campos de 2 bits con la corriente de bias de
+ * los amplificadores analogos: [1:0] ZCD, [3:2] HP, [5:4] HS (auricular) y
+ * [7:6] LO. De fabrica vale 0x0055 (01: ZCD 4uA, HP/HS/LO 5uA). Lo guardamos
+ * aparte para poder subir SOLO el del auricular y para que el valor sobreviva
+ * a los re-inicios que hace el propio driver del codec. */
+#define OC_BIAS_HS_SHIFT 4
+static unsigned int oc_bias_reg = 0x0055;
+
+static void oc_bias_apply(void)
+{
+	Ana_Set_Reg(AUDDEC_ANA_CON10, oc_bias_reg, 0xffff);
+}
 enum hp_depop_flow {
 	HP_DEPOP_FLOW_DEPOP_HW,
 	HP_DEPOP_FLOW_33OHM,
@@ -727,12 +740,12 @@ static void OpenTrimBufferHardware(bool enable, bool buffer_on)
 		/* Disable AUD_ZCD */
 		Hp_Zcd_Enable(false);
 		/* Enable IBIST */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Set HP DR bias current optimization, 010: 6uA */
 		Ana_Set_Reg(AUDDEC_ANA_CON9, 0x92, 0xffff);
 		/* Set HP & ZCD bias current optimization */
 		/* 01: ZCD: 4uA, HP/HS/LO: 5uA */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Set HPP/N STB enhance circuits */
 		Ana_Set_Reg(AUDDEC_ANA_CON2, 0x033, 0x00ff);
 
@@ -875,12 +888,12 @@ static void open_trim_bufferhardware_withspk(bool enable, bool buffer_on)
 		/* Disable AUD_ZCD */
 		Hp_Zcd_Enable(false);
 		/* Enable IBIST */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Set HP DR bias current optimization, 010: 6uA */
 		Ana_Set_Reg(AUDDEC_ANA_CON9, 0x92, 0xffff);
 		/* Set HP & ZCD bias current optimization */
 		/* 01: ZCD: 4uA, HP/HS/LO: 5uA */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Set HPP/N STB enhance circuits */
 		Ana_Set_Reg(AUDDEC_ANA_CON2, 0x0033, 0x00ff);
 
@@ -1023,7 +1036,7 @@ static bool OpenHeadPhoneImpedanceSetting(bool bEnable)
 		/* Disable AUD_ZCD */
 		Hp_Zcd_Enable(false);
 		/* Enable IBIST */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Disable HPR/L STB enhance circuits */
 		Ana_Set_Reg(AUDDEC_ANA_CON2, 0x200, 0xffff);
 		/* Enable HP main CMFB Switch */
@@ -2997,12 +3010,12 @@ static void Audio_Amp_Change(int channels, bool enable)
 			/* Disable AUD_ZCD */
 			Hp_Zcd_Enable(false);
 			/* Enable IBIST */
-			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+			oc_bias_apply();
 			/* Set HP DR bias current optimization, 010: 6uA */
 			Ana_Set_Reg(AUDDEC_ANA_CON9, 0x92, 0xffff);
 			/* Set HP & ZCD bias current optimization */
 			/* 01: ZCD: 4uA, HP/HS/LO: 5uA */
-			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+			oc_bias_apply();
 			/* Set HPP/N STB enhance circuits */
 			Ana_Set_Reg(AUDDEC_ANA_CON2, 0x0033, 0x00ff);
 			/* Enable HP aux output stage */
@@ -3281,12 +3294,12 @@ static int PMIC_REG_CLEAR_Set(struct snd_kcontrol *kcontrol,
 	/* Disable AUD_ZCD */
 	Hp_Zcd_Enable(false);
 	/* Enable IBIST */
-	Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+	oc_bias_apply();
 	/* Set HP DR bias current optimization, 010: 6uA */
 	Ana_Set_Reg(AUDDEC_ANA_CON9, 0x92, 0xffff);
 	/* Set HP & ZCD bias current optimization */
 	/* 01: ZCD: 4uA, HP/HS/LO: 5uA */
-	Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+	oc_bias_apply();
 	/* Set HS STB enhance circuits */
 	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090, 0xffff);
 	/* Enable HS driver bias circuits */
@@ -3396,6 +3409,17 @@ static int PMIC_REG_CLEAR_Get(struct snd_kcontrol *kcontrol,
  * silencio; por defecto el auricular se deja en +8 dB para que se oiga fuerte.
  * La del altavoz sigue al HAL (lolgain=-1) para que el volumen de la musica
  * funcione igual de siempre.
+ *
+ * Para subir el auricular (y solo el auricular) hay dos mandos mas:
+ *   hsbias=N   corriente de bias del HS (campo HS de AUDDEC_ANA_CON10, 0..3;
+ *              de fabrica 1 = 5uA). Es lo unico que queda del amplificador
+ *              del auricular: el PGA ya va a +8 dB, que es su tope.
+ *   cmfb=0|1   realimentacion de modo comun del HS (bit 7 de AUDDEC_ANA_CON6).
+ *              El driver original solo la enciende en el camino de voz, asi
+ *              que en modo altavoz el auricular sale mas flojo.
+ *   bias=<campo> <valor>  campo 0=ZCD, 1=HP, 2=HS, 3=LO (para experimentar).
+ *   reg=<offset> <valor> [mascara]  escritura libre de un registro del codec
+ *              (offset relativo a AUD_PMIC_REG_BASE = 0x2080).
  * ======================================================================== */
 #define OC_STEREO_PROC_NAME "oc_stereo"
 
@@ -3411,6 +3435,7 @@ static int oc_stereo_gain = DL_GAIN_8DB;	/* +8 dB: tope del PGA del HS */
 static int oc_stereo_lol_mux = 2;	/* AUDLOLMUXINPUTSEL del altavoz */
 static int oc_stereo_lol_gain = -1;	/* ganancia del altavoz (<0 = la del HAL) */
 static int oc_stereo_hs_state = OC_HS_OFF;
+static int oc_stereo_hs_cmfb = 1;	/* bit 7 de AUDDEC_ANA_CON6: CMFB del HS */
 static bool oc_stereo_spk_on;
 static bool oc_stereo_hal_hs_on;	/* el HAL quiere el auricular encendido */
 
@@ -3479,6 +3504,14 @@ static void oc_stereo_hs_enable(void)
 	/* El DAC de audio ya esta encendido por el altavoz: solo fijamos sus bits
 	 * (no tocamos los del mux de auriculares, bits 9 y 11) */
 	Ana_Set_Reg(AUDDEC_ANA_CON0, 0x3009, 0x3009);
+	/* El CMFB del auricular (bit 7 de AUDDEC_ANA_CON6) solo lo enciende el
+	 * camino de voz del driver: en modo altavoz se queda apagado y el
+	 * auricular sale flojo. El valor del vendor con el auricular activo es
+	 * 0x0281 = 0x0201 (altavoz) + este bit. */
+	Ana_Set_Reg(AUDDEC_ANA_CON6, oc_stereo_hs_cmfb ? 0x0080 : 0x0000,
+		    0x0080);
+	/* Corriente de bias del auricular (campo HS de AUDDEC_ANA_CON10) */
+	oc_bias_apply();
 	/* Sin proteccion de cortocircuito en el auricular */
 	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0010, 0x0010);
 	/* Auricular: STB enhance -> bias -> nucleo, con el mux de entrada */
@@ -3525,6 +3558,10 @@ static int oc_stereo_proc_show(struct seq_file *m, void *v)
 		   Ana_Get_Reg(AUDDEC_ANA_CON4), Ana_Get_Reg(AUDDEC_ANA_CON7));
 	seq_printf(m, "ZCD_CON1=0x%04x ZCD_CON3=0x%04x\n",
 		   Ana_Get_Reg(ZCD_CON1), Ana_Get_Reg(ZCD_CON3));
+	seq_printf(m,
+		   "ANA_CON6=0x%04x ANA_CON10=0x%04x bias_reg=0x%04x cmfb=%d\n",
+		   Ana_Get_Reg(AUDDEC_ANA_CON6), Ana_Get_Reg(AUDDEC_ANA_CON10),
+		   oc_bias_reg, oc_stereo_hs_cmfb);
 	return 0;
 }
 
@@ -3538,6 +3575,10 @@ static ssize_t oc_stereo_proc_write(struct file *file, const char __user *buf,
 {
 	char cmd[64];
 	int val;
+	int val2;
+	unsigned int off;
+	unsigned int uval;
+	unsigned int umask = 0xffff;
 	size_t len = min(count, sizeof(cmd) - 1);
 
 	if (copy_from_user(cmd, buf, len))
@@ -3569,6 +3610,30 @@ static ssize_t oc_stereo_proc_write(struct file *file, const char __user *buf,
 		if (val < -1 || val > OC_GAIN_MAX)
 			return -EINVAL;
 		oc_stereo_lol_gain = val;
+	} else if (sscanf(cmd, "hsbias=%d", &val) == 1) {
+		/* corriente de bias del auricular: campo HS (bits 5:4) de
+		 * AUDDEC_ANA_CON10. De fabrica es 1 (5uA) */
+		if (val < 0 || val > 3)
+			return -EINVAL;
+		oc_bias_reg &= ~(0x3u << OC_BIAS_HS_SHIFT);
+		oc_bias_reg |= ((unsigned int)val & 0x3) << OC_BIAS_HS_SHIFT;
+		oc_bias_apply();
+	} else if (sscanf(cmd, "bias=%d %d", &val, &val2) == 2) {
+		/* campo 0=ZCD [1:0], 1=HP [3:2], 2=HS [5:4], 3=LO [7:6] */
+		if (val < 0 || val > 3 || val2 < 0 || val2 > 3)
+			return -EINVAL;
+		oc_bias_reg &= ~(0x3u << (val * 2));
+		oc_bias_reg |= ((unsigned int)val2 & 0x3) << (val * 2);
+		oc_bias_apply();
+	} else if (sscanf(cmd, "cmfb=%d", &val) == 1) {
+		/* bit 7 de AUDDEC_ANA_CON6: la realimentacion de modo comun del HS */
+		if (val < 0 || val > 1)
+			return -EINVAL;
+		oc_stereo_hs_cmfb = val;
+	} else if (sscanf(cmd, "reg=%x %x %x", &off, &uval, &umask) >= 2) {
+		/* escritura libre de un registro del codec: el offset es relativo a
+		 * AUD_PMIC_REG_BASE (0x2080), p.ej. 0x19c = AUDDEC_ANA_CON10 */
+		Ana_Set_Reg(AUD_PMIC_REG_BASE + off, uval, umask);
 	} else {
 		return -EINVAL;
 	}
@@ -3581,9 +3646,10 @@ static ssize_t oc_stereo_proc_write(struct file *file, const char __user *buf,
 		oc_stereo_hs_mute();
 	}
 
-	pr_info("%s(): '%s' master=%d mux=%d gain=%d lol_mux=%d lol_gain=%d\n",
+	pr_info("%s(): '%s' master=%d mux=%d gain=%d lol_mux=%d lol_gain=%d bias=0x%04x cmfb=%d\n",
 	       __func__, cmd, oc_stereo_master, oc_stereo_mux, oc_stereo_gain,
-	       oc_stereo_lol_mux, oc_stereo_lol_gain);
+	       oc_stereo_lol_mux, oc_stereo_lol_gain, oc_bias_reg,
+	       oc_stereo_hs_cmfb);
 	return count;
 }
 
@@ -3631,12 +3697,12 @@ static void Voice_Amp_Change(bool enable)
 			/* Disable AUD_ZCD */
 			Hp_Zcd_Enable(false);
 			/* Enable IBIST */
-			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+			oc_bias_apply();
 			/* Set HP DR bias current optimization, 010: 6uA */
 			Ana_Set_Reg(AUDDEC_ANA_CON9, 0x92, 0xffff);
 			/* Set HP & ZCD bias current optimization */
 			/* 01: ZCD: 4uA, HP/HS/LO: 5uA */
-			Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+			oc_bias_apply();
 			/* Set HS STB enhance circuits */
 			Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090, 0xffff);
 			/* Enable HS driver bias circuits */
@@ -3782,12 +3848,12 @@ static void Speaker_Amp_Change(bool enable)
 		/* Disable AUD_ZCD */
 		Hp_Zcd_Enable(false);
 		/* Enable IBIST */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Set HP DR bias current optimization, 010: 6uA */
 		Ana_Set_Reg(AUDDEC_ANA_CON9, 0x92, 0xffff);
 		/* Set HP & ZCD bias current optimization */
 		/* 01: ZCD: 4uA, HP/HS/LO: 5uA */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Set LO STB enhance circuits */
 		Ana_Set_Reg(AUDDEC_ANA_CON4, 0x0110, 0xffff);
 		/* Enable LO driver bias circuits */
@@ -4048,12 +4114,12 @@ static void Headset_Speaker_Amp_Change(bool enable)
 		/* Disable AUD_ZCD */
 		Hp_Zcd_Enable(false);
 		/* Enable IBIST */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Set HP DR bias current optimization, 010: 6uA */
 		Ana_Set_Reg(AUDDEC_ANA_CON9, 0x92, 0xffff);
 		/* Set HP & ZCD bias current optimization */
 		/* 01: ZCD: 4uA, HP/HS/LO: 5uA */
-		Ana_Set_Reg(AUDDEC_ANA_CON10, 0x0055, 0xffff);
+		oc_bias_apply();
 		/* Set HPP/N STB enhance circuits */
 		Ana_Set_Reg(AUDDEC_ANA_CON2, 0x33, 0x00ff);
 		/* No Pull-down HPL/R to AVSS28_AUD */
@@ -4268,6 +4334,10 @@ static int Lineout_PGAL_Set(struct snd_kcontrol *kcontrol,
 		index = DL_GAIN_N_40DB;
 	Ana_Set_Reg(ZCD_CON1, index, 0x001f);
 	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_LINEOUTL] = index;
+	/* si hemos fijado una ganancia propia para el altavoz, el HAL no puede
+	 * pisarla */
+	if (oc_stereo_lol_gain >= 0)
+		oc_stereo_lo_apply();
 	return 0;
 }
 static int Lineout_PGAR_Get(struct snd_kcontrol *kcontrol,
@@ -4297,6 +4367,10 @@ static int Lineout_PGAR_Set(struct snd_kcontrol *kcontrol,
 		index = DL_GAIN_N_40DB;
 	Ana_Set_Reg(ZCD_CON1, index << 7, 0x0f80);
 	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_LINEOUTR] = index;
+	/* si hemos fijado una ganancia propia para el altavoz, el HAL no puede
+	 * pisarla */
+	if (oc_stereo_lol_gain >= 0)
+		oc_stereo_lo_apply();
 	return 0;
 }
 static int Handset_PGA_Get(struct snd_kcontrol *kcontrol,

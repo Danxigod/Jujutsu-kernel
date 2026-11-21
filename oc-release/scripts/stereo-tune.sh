@@ -9,6 +9,10 @@
 #   lolmux=0..3   mux de entrada del altavoz (AUDLOLMUXINPUTSEL)
 #   gain=0..18    ganancia del auricular (18 = -40 dB)
 #   lolgain=-1..18 ganancia del altavoz (-1 = la que pone el HAL)
+#   hsbias=0..3   corriente de bias del auricular (campo HS de AUDDEC_ANA_CON10)
+#   cmfb=0|1      realimentacion de modo comun del auricular (AUDDEC_ANA_CON6)
+#   bias=<campo> <valor>  campo 0=ZCD, 1=HP, 2=HS, 3=LO   (con comillas)
+#   reg=<offset> <valor> [mascara]  registro libre del codec (con comillas)
 #   on / off      activa o desactiva la salida dual
 #   force         enciende el auricular ahora mismo
 set -uo pipefail
@@ -26,7 +30,7 @@ fi
 
 for arg in "$@"; do
 	case "$arg" in
-	mux=*|lolmux=*|gain=*|lolgain=*|on|off|force) ;;
+	mux=*|lolmux=*|gain=*|lolgain=*|hsbias=*|cmfb=*|bias=*|reg=*|on|off|force) ;;
 	*)
 		echo "comando no valido: $arg" >&2
 		exit 1

@@ -430,8 +430,30 @@ separar izquierda/derecha entre los dos parlantes sin un amplificador externo co
 |---|---|---|
 | `mux` (HS) | 2 | única posición que da audio en el auricular |
 | `gain` (HS) | 0 | **+8 dB: el máximo del PGA del auricular** |
+| `cmfb` (HS) | 1 | realimentación de modo común del auricular (bit 7 de `AUDDEC_ANA_CON6`) |
+| `hsbias` (HS) | 1 | corriente de bias del auricular (campo HS de `AUDDEC_ANA_CON10`) |
 | `lolmux` (LO) | 2 | mux del altavoz (el de fábrica) |
 | `lolgain` (LO) | −1 | sigue al HAL: el volumen de la música funciona normal |
+
+### Por qué el auricular suena flojo y qué queda por subir
+
+El auricular es un altavoz diminuto y el codec tiene **tres** topes en su cadena:
+
+1. **PGA analógico (`ZCD_CON3`)**: la tabla del driver va de 0 (+8 dB) a 18 (silencio).
+   El parche lo deja en **0, que ya es el máximo físico**. El HAL de MIUI lo usa en 8 (0 dB).
+2. **Volumen del sistema**: `STREAM_MUSIC` está a **15/15** (comprobado con `dumpsys audio`),
+   así que la señal digital que llega al DAC es la máxima que el HAL permite. El HAL decide
+   esa ganancia **en digital dentro del blob del fabricante** (`vendor/lib64/hw/audio.*.so`),
+   no en el kernel: desde el kernel no se puede subir más.
+3. **Amplificador del auricular**: aquí sí queda algo, y es **exclusivo del auricular**
+   (no toca el DAC digital ni el altavoz de abajo):
+   - `cmfb=0|1` → el bit 7 de `AUDDEC_ANA_CON6` (realimentación de modo común). El driver
+     original del codec **solo lo enciende en el camino de voz**, así que en modo altavoz el
+     auricular se queda sin él y suena más flojo. El parche lo activa.
+   - `hsbias=0..3` → corriente de bias del amplificador del auricular (campo HS de
+     `AUDDEC_ANA_CON10`). De fábrica es 1 (5 µA); los valores 2 y 3 suben la corriente de
+     reposo del amplificador. El valor se reaplica cada vez que el driver reinicializa
+     los registros del codec, así que no se pierde al cambiar el volumen.
 
 ### Ajuste en caliente (sin reiniciar, sin root)
 
@@ -440,6 +462,8 @@ adb shell "cat /proc/oc_stereo"                    # ver el estado
 adb shell "echo gain=0  > /proc/oc_stereo"          # auricular a +8 dB (máximo)
 adb shell "echo gain=8  > /proc/oc_stereo"          # auricular a 0 dB
 adb shell "echo gain=16 > /proc/oc_stereo"          # auricular a −8 dB
+adb shell "echo hsbias=3 > /proc/oc_stereo"         # más corriente en el auricular
+adb shell "echo cmfb=0   > /proc/oc_stereo"         # sin realimentación de modo común
 adb shell "echo lolgain=10 > /proc/oc_stereo"       # fija la ganancia del altavoz
 adb shell "echo off > /proc/oc_stereo"              # vuelve al comportamiento normal
 adb shell "echo on  > /proc/oc_stereo"              # reactiva la salida dual
@@ -448,6 +472,13 @@ adb shell "echo on  > /proc/oc_stereo"              # reactiva la salida dual
 `gain` y `lolgain` van de 0 a 18 (0 = +8 dB ... 17 = −10 dB, 18 = silencio;
 `lolgain=-1` = "el que ponga el HAL"). El valor por defecto de `gain` es 0, es
 decir **+8 dB, el tope del amplificador del auricular**.
+
+Mandos de experimentación (solo para pruebas; no hacen falta en el uso normal):
+
+```bash
+adb shell "echo bias=2 3 > /proc/oc_stereo"   # campo 0=ZCD, 1=HP, 2=HS, 3=LO (bias)
+adb shell "echo reg=19c 75 > /proc/oc_stereo" # escritura libre (offset + AUD_PMIC_REG_BASE)
+```
 
 ### Scripts de apoyo
 
