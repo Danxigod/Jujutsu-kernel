@@ -3388,8 +3388,9 @@ static int PMIC_REG_CLEAR_Get(struct snd_kcontrol *kcontrol,
  * que es lo que interceptamos aqui: cuando el altavoz se enciende encendemos
  * tambien el auricular, de modo que la musica sale por los dos extremos.
  *
- * El mux de entrada del HS (AUDHSMUXINPUTSEL) y su ganancia son ajustables
- * en caliente por /proc/oc_stereo (mux=0..3, gain=0..19).
+ * El mux de entrada del HS (AUDHSMUXINPUTSEL), el del altavoz
+ * (AUDLOLMUXINPUTSEL) y sus ganancias son ajustables en caliente por
+ * /proc/oc_stereo: mux=0..3, lolmux=0..3, gain=0..18, lolgain=-1..18.
  * ======================================================================== */
 #define OC_STEREO_PROC_NAME "oc_stereo"
 
@@ -3402,23 +3403,54 @@ enum oc_stereo_hs_state {
 static int oc_stereo_master = 1;	/* salida dual activada */
 static int oc_stereo_mux = 2;		/* AUDHSMUXINPUTSEL del HS */
 static int oc_stereo_gain = DL_GAIN_0DB;	/* indice de ganancia del HS */
+static int oc_stereo_lol_mux = 2;	/* AUDLOLMUXINPUTSEL del altavoz */
+static int oc_stereo_lol_gain = -1;	/* ganancia del altavoz (<0 = la del HAL) */
 static int oc_stereo_hs_state = OC_HS_OFF;
 static bool oc_stereo_spk_on;
+static bool oc_stereo_hal_hs_on;	/* el HAL quiere el auricular encendido */
 
+/* El mixer de ganancia va de 0 (+8 dB) a 17 (-10 dB); el 18 es -40 dB y se
+ * escribe como DL_GAIN_N_40DB (0x1f). */
+static unsigned int oc_stereo_gain_reg(int idx)
+{
+	if (idx >= 18)
+		return DL_GAIN_N_40DB;
+	return (unsigned int)idx;
+}
+
+/* Rampa de ganancia del auricular: se cambia el registro de 5 bits paso a
+ * paso para que no chasquee. */
 static void oc_stereo_gain_ramp(unsigned int target)
 {
-	int i;
+	unsigned int cur = Ana_Get_Reg(ZCD_CON3) & 0x001f;
+	unsigned int i;
 
-	/* de -10 dB hasta el objetivo, paso a paso, para que no chasquee */
-	for (i = DL_GAIN_N_10DB; i >= (int)target; i--)
-		Ana_Set_Reg(ZCD_CON3, i, 0x001f);
+	if (cur == target)
+		return;
+	if (target > cur) {
+		for (i = cur + 1; i <= target; i++)
+			Ana_Set_Reg(ZCD_CON3, i, 0x001f);
+	} else {
+		for (i = cur; i > target; i--)
+			Ana_Set_Reg(ZCD_CON3, i, 0x001f);
+	}
+	Ana_Set_Reg(ZCD_CON3, target, 0x001f);
+}
+
+/* El mux del altavoz (bits 3:2 de AUDDEC_ANA_CON4) decide que canal del DAC
+ * sale por el LO. Con 2 (el valor de fabrica) sale la mezcla L+R. */
+static void oc_stereo_lo_apply(void)
+{
+	if (!oc_stereo_spk_on)
+		return;
+	Ana_Set_Reg(AUDDEC_ANA_CON4, (oc_stereo_lol_mux & 0x3) << 2, 0x3 << 2);
+	if (oc_stereo_lol_gain >= 0)
+		apply_speaker_gain(oc_stereo_gain_reg(oc_stereo_lol_gain));
 }
 
 static void oc_stereo_hs_enable(void)
 {
-	/* 0x0093 = power up + bias + sin cortocircuito + etapa de salida.
-	 * Los bits 3:2 (mux de entrada) los rellenamos abajo. */
-	unsigned int con3 = 0x0093 | ((oc_stereo_mux & 0x3) << 2);
+	unsigned int mux = (oc_stereo_mux & 0x3) << 2;
 
 	/* Liberar el pull-down del CMFB del auricular (bit 5). El del altavoz
 	 * (bit 7) ya lo libero Speaker_Amp_Change(). */
@@ -3428,19 +3460,22 @@ static void oc_stereo_hs_enable(void)
 	Ana_Set_Reg(AUDDEC_ANA_CON0, 0x3009, 0x3009);
 	/* Sin proteccion de cortocircuito en el auricular */
 	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0010, 0x0010);
-	/* Auricular: power up + mux de entrada + etapa de salida */
-	Ana_Set_Reg(AUDDEC_ANA_CON3, con3, 0xffff);
+	/* Auricular: STB enhance -> bias -> nucleo, con el mux de entrada */
+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0090 | mux, 0xffff);
+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0092 | mux, 0xffff);
+	Ana_Set_Reg(AUDDEC_ANA_CON3, 0x0093 | mux, 0xffff);
 	/* Ganancia con rampa para que no chasquee */
-	oc_stereo_gain_ramp(oc_stereo_gain);
+	oc_stereo_gain_ramp(oc_stereo_gain_reg(oc_stereo_gain));
 	mCodec_data->mAudio_Ana_Volume[AUDIO_ANALOG_VOLUME_HSOUTL] =
 	    oc_stereo_gain;
 	mCodec_data->mAudio_Ana_DevicePower
 	    [AUDIO_ANALOG_DEVICE_OUT_EARPIECEL] = true;
 	oc_stereo_hs_state = OC_HS_BY_OC;
-	pr_info("%s(): HS on mux=%d gain=%d ANA_CON0=0x%04x ANA_CON3=0x%04x ANA_CON7=0x%04x\n",
-		__func__, oc_stereo_mux, oc_stereo_gain,
+	oc_stereo_lo_apply();
+	pr_info("%s(): HS on mux=%d gain=%d lol_mux=%d ANA_CON0=0x%04x ANA_CON3=0x%04x ANA_CON4=0x%04x ANA_CON7=0x%04x\n",
+		__func__, oc_stereo_mux, oc_stereo_gain, oc_stereo_lol_mux,
 		Ana_Get_Reg(AUDDEC_ANA_CON0), Ana_Get_Reg(AUDDEC_ANA_CON3),
-		Ana_Get_Reg(AUDDEC_ANA_CON7));
+		Ana_Get_Reg(AUDDEC_ANA_CON4), Ana_Get_Reg(AUDDEC_ANA_CON7));
 }
 
 static void oc_stereo_hs_mute(void)
@@ -3458,9 +3493,11 @@ static void oc_stereo_hs_mute(void)
 
 static int oc_stereo_proc_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, "master=%d mux=%d gain=%d state=%d spk_on=%d\n",
+	seq_printf(m,
+		   "master=%d mux=%d gain=%d lol_mux=%d lol_gain=%d state=%d spk_on=%d hal_hs=%d\n",
 		   oc_stereo_master, oc_stereo_mux, oc_stereo_gain,
-		   oc_stereo_hs_state, oc_stereo_spk_on);
+		   oc_stereo_lol_mux, oc_stereo_lol_gain, oc_stereo_hs_state,
+		   oc_stereo_spk_on, oc_stereo_hal_hs_on);
 	seq_printf(m,
 		   "ANA_CON0=0x%04x ANA_CON3=0x%04x ANA_CON4=0x%04x ANA_CON7=0x%04x\n",
 		   Ana_Get_Reg(AUDDEC_ANA_CON0), Ana_Get_Reg(AUDDEC_ANA_CON3),
@@ -3500,20 +3537,31 @@ static ssize_t oc_stereo_proc_write(struct file *file, const char __user *buf,
 			return -EINVAL;
 		oc_stereo_mux = val;
 	} else if (sscanf(cmd, "gain=%d", &val) == 1) {
-		if (val < 0 || val > 19)
+		if (val < 0 || val > 18)
 			return -EINVAL;
 		oc_stereo_gain = val;
+	} else if (sscanf(cmd, "lolmux=%d", &val) == 1) {
+		if (val < 0 || val > 3)
+			return -EINVAL;
+		oc_stereo_lol_mux = val;
+	} else if (sscanf(cmd, "lolgain=%d", &val) == 1) {
+		if (val < -1 || val > 18)
+			return -EINVAL;
+		oc_stereo_lol_gain = val;
 	} else {
 		return -EINVAL;
 	}
 
-	if (oc_stereo_master && oc_stereo_spk_on)
+	if (oc_stereo_master && oc_stereo_spk_on) {
+		oc_stereo_lo_apply();
 		oc_stereo_hs_enable();
-	else if (oc_stereo_hs_state == OC_HS_BY_OC)
+	} else if (oc_stereo_hs_state == OC_HS_BY_OC && !oc_stereo_hal_hs_on) {
 		oc_stereo_hs_mute();
+	}
 
-	pr_info("%s(): '%s' master=%d mux=%d gain=%d\n", __func__, cmd,
-	       oc_stereo_master, oc_stereo_mux, oc_stereo_gain);
+	pr_info("%s(): '%s' master=%d mux=%d gain=%d lol_mux=%d lol_gain=%d\n",
+	       __func__, cmd, oc_stereo_master, oc_stereo_mux, oc_stereo_gain,
+	       oc_stereo_lol_mux, oc_stereo_lol_gain);
 	return count;
 }
 
@@ -3648,6 +3696,7 @@ static int Voice_Amp_Set(struct snd_kcontrol *kcontrol,
 	if ((ucontrol->value.integer.value[0] == true) &&
 	    (mCodec_data->mAudio_Ana_DevicePower
 		     [AUDIO_ANALOG_DEVICE_OUT_EARPIECEL] == false)) {
+		oc_stereo_hal_hs_on = true;
 		if (oc_stereo_master && oc_stereo_spk_on)
 			oc_stereo_hs_enable();
 		else {
@@ -3663,7 +3712,11 @@ static int Voice_Amp_Set(struct snd_kcontrol *kcontrol,
 		mCodec_data->mAudio_Ana_DevicePower
 			[AUDIO_ANALOG_DEVICE_OUT_EARPIECEL] =
 		    ucontrol->value.integer.value[0];
-		if (oc_stereo_hs_state == OC_HS_BY_OC)
+		oc_stereo_hal_hs_on = false;
+		if (oc_stereo_master && oc_stereo_spk_on)
+			/* el altavoz sigue sonando: el auricular se queda */
+			oc_stereo_hs_enable();
+		else if (oc_stereo_hs_state == OC_HS_BY_OC)
 			oc_stereo_hs_mute();
 		else
 			Voice_Amp_Change(false);
@@ -3793,12 +3846,12 @@ static int Speaker_Amp_Set(struct snd_kcontrol *kcontrol,
 			[AUDIO_ANALOG_DEVICE_OUT_SPEAKERL] =
 		    ucontrol->value.integer.value[0];
 		oc_stereo_spk_on = true;
-		if (oc_stereo_master)
+		if (oc_stereo_master && !oc_stereo_hal_hs_on)
 			oc_stereo_hs_enable();
 	} else if ((ucontrol->value.integer.value[0] == false) &&
 		   (mCodec_data->mAudio_Ana_DevicePower
 			    [AUDIO_ANALOG_DEVICE_OUT_SPEAKERL] == true)) {
-		if (oc_stereo_hs_state == OC_HS_BY_OC)
+		if (oc_stereo_hs_state == OC_HS_BY_OC && !oc_stereo_hal_hs_on)
 			oc_stereo_hs_mute();
 		oc_stereo_spk_on = false;
 		mCodec_data->mAudio_Ana_DevicePower
