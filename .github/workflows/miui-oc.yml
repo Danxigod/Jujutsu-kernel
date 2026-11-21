@@ -46,6 +46,19 @@ jobs:
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git /tmp/gcc-aarch64
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git /tmp/gcc-arm
 
+      - name: Prepare KernelSU source
+        run: |
+          # El arbol del repo NO incluye drivers/kernelsu: el build original se lo baja
+          # con el setup.sh de KernelSU-Next. Para el kernel MIUI-OC compilamos sin KSU
+          # (igual que el commit "V7 : NO KSU BUILD"), asi el vermagic queda exacto.
+          if [ -f drivers/kernelsu/Kconfig ]; then
+            echo "drivers/kernelsu presente: se usa el que hay en el arbol"
+          else
+            echo "::notice::Sin KernelSU (drivers/kernelsu no esta en el arbol)"
+            sed -i 's|^source "drivers/kernelsu/Kconfig"|# source "drivers/kernelsu/Kconfig"|' drivers/Kconfig
+            grep -n "kernelsu" drivers/Kconfig drivers/Makefile
+          fi
+
       - name: Apply OC profile
         run: |
           bash oc-release/scripts/set-profile.sh "${{ github.event.inputs.profile || 'P2' }}" .
