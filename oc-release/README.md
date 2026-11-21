@@ -393,6 +393,68 @@ parchea el boot en el propio móvil), (b) una versión más nueva de Magisk que 
 
 ---
 
+## 8-bis. Audio estéreo: altavoz + auricular a la vez
+
+El parche `mt6765-oc-stereo.patch` toca **un solo archivo**:
+`sound/soc/mediatek/codec/mt6357/mtk-soc-codec-6357.c` (el driver del codec de audio).
+
+### Qué hace
+
+El HAL de MIUI enciende el altavoz con el control ALSA `Speaker_Amp_Switch` y el auricular
+("handset", el de arriba) con `Voice_Amp_Switch`. El parche intercepta `Speaker_Amp_Set(true)`:
+cuando el altavoz se enciende, **enciende también el auricular**, de modo que la música sale por
+los dos extremos del móvil a la vez.
+
+| Registro | Qué controla |
+|---|---|
+| `AUDDEC_ANA_CON3` | salida HS (auricular): enable, bias, mux de entrada y cortocircuito |
+| `AUDDEC_ANA_CON4` | salida LO (altavoz): enable, bias y mux de entrada |
+| `AUDDEC_ANA_CON7` | pull-down del CMFB de cada salida (bit 5 = HS, bit 7 = LO) |
+| `ZCD_CON3` | ganancia del auricular (0 = **+8 dB**, 8 = 0 dB, 20 = −12 dB, 0x1f = silencio) |
+| `ZCD_CON1` | ganancia del altavoz (misma escala) |
+
+### Lo que NO se puede (y por qué)
+
+El AFE de este SoC manda **una sola pista I2S de 2 canales** al DAC del codec, y el HS y el LO
+toman los dos canales con el mismo mux (el 2). Medido en el móvil con ficheros de solo-izquierda
+y solo-derecha: **ambos parlantes suenan la mezcla L+R**, no un canal cada uno. No hay forma de
+separar izquierda/derecha entre los dos parlantes sin un amplificador externo con dos rutas
+(L/R) y un mixer de hardware; el `mux` de 0 a 3 no selecciona canal, solo "abre" la entrada.
+
+### Configuración por defecto (ya viene de fábrica en el kernel)
+
+| Parámetro | Valor | Significado |
+|---|---|---|
+| `mux` (HS) | 2 | única posición que da audio en el auricular |
+| `gain` (HS) | 0 | **+8 dB: el máximo del PGA del auricular** |
+| `lolmux` (LO) | 2 | mux del altavoz (el de fábrica) |
+| `lolgain` (LO) | −1 | sigue al HAL: el volumen de la música funciona normal |
+
+### Ajuste en caliente (sin reiniciar, sin root)
+
+```bash
+adb shell "cat /proc/oc_stereo"                    # ver el estado
+adb shell "echo gain=0  > /proc/oc_stereo"          # auricular a +8 dB (máximo)
+adb shell "echo gain=8  > /proc/oc_stereo"          # auricular a 0 dB
+adb shell "echo gain=16 > /proc/oc_stereo"          # auricular a −8 dB
+adb shell "echo lolgain=10 > /proc/oc_stereo"       # fija la ganancia del altavoz
+adb shell "echo off > /proc/oc_stereo"              # vuelve al comportamiento normal
+adb shell "echo on  > /proc/oc_stereo"              # reactiva la salida dual
+```
+
+`gain` y `lolgain` van de 0 a 20 (0 = +8 dB ... 20 = −12 dB; `lolgain=-1` = "el que ponga el HAL").
+
+### Scripts de apoyo
+
+```bash
+scripts/play.sh                # deja sonando el fichero de prueba y comprueba spk_on=1
+scripts/stereo-tune.sh         # aplica cambios a /proc/oc_stereo y muestra el estado
+scripts/stereo-sweep.sh        # recorre las 16 combinaciones de mux (arriba/abajo)
+scripts/make-stereo-test.py    # genera los WAV de prueba (estéreo, solo L, solo R)
+```
+
+---
+
 ## 9. Rollback
 
 ```bash
@@ -445,6 +507,11 @@ scripts/monitor.sh                monitor en vivo (temp, freq, volt, throttling)
 scripts/magisk-patch.sh           parchea el boot con Magisk desde el propio móvil (adb)
 scripts/fetch-ci.sh               descarga el Image.gz del artefacto del CI
 scripts/perfil-juego.sh           tuning en runtime (governor + GPU fija) — necesita root
+scripts/play.sh                   deja sonando el fichero de prueba y verifica spk_on=1
+scripts/stereo-tune.sh            ajusta /proc/oc_stereo en caliente (ganancia y mux)
+scripts/stereo-sweep.sh           recorre las 16 combinaciones de mux de las dos salidas
+scripts/make-stereo-test.py       genera los WAV de prueba (estéreo, solo L, solo R)
+mt6765-oc-stereo.patch            el parche de audio estéreo (codec MT6357)
 ```
 
 Nota: el parche lleva comentarios explicativos dentro del código; `set-profile.sh` sólo reescribe
