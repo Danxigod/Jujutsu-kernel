@@ -100,6 +100,10 @@ jobs:
 
           make O=out ARCH=${ARCH} CC=clang CLANG_TRIPLE=${CLANG_TRIPLE} \
             CROSS_COMPILE=${CROSS_COMPILE} CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} olddefconfig
+          # syncconfig regenera include/config/auto.conf, que es de donde setlocalversion
+          # lee CONFIG_LOCALVERSION (olddefconfig solo reescribe .config)
+          make O=out ARCH=${ARCH} CC=clang CLANG_TRIPLE=${CLANG_TRIPLE} \
+            CROSS_COMPILE=${CROSS_COMPILE} CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} syncconfig
           cp out/.config kernel.config
           grep -E 'LOCALVERSION|CONFIG_MODVERSIONS|CONFIG_CLANG_VERSION|CONFIG_KERNEL_GZIP|CONFIG_SYSFS' out/.config
 
@@ -148,7 +152,12 @@ jobs:
             echo "::warning::El kernel NO cabe en el hueco original: usa repack-boot.py --shift"
           fi
           echo "--- version string ---"
-          zcat out/arch/arm64/boot/Image.gz | strings | grep -m1 "Linux version"
+          VER=$(zcat out/arch/arm64/boot/Image.gz | strings | grep -m1 "Linux version" || true)
+          echo "$VER"
+          case "$VER" in
+            *"Linux version 4.19.127-perf-g7288046673d5"*) echo "Version OK" ;;
+            *) echo "::error::La version del kernel no es la de MIUI: $VER"; exit 1 ;;
+          esac
 
       - name: Upload kernel
         uses: actions/upload-artifact@v4

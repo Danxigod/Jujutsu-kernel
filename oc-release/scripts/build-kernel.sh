@@ -90,6 +90,11 @@ fi
 make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
 	CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- \
 	olddefconfig >/dev/null
+# syncconfig regenera include/config/auto.conf (de donde lee CONFIG_LOCALVERSION
+# el calculo de la version); olddefconfig solo reescribe .config
+make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+	CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+	syncconfig >/dev/null
 
 echo "== Comprobaciones de la config"
 for opt in LOCALVERSION LOCALVERSION_AUTO MODVERSIONS MODULE_SIG TRIM_UNUSED_KSYMS CLANG_VERSION; do
