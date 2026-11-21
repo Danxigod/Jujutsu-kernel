@@ -1,0 +1,152 @@
+name: MIUI OC build (angelica)
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Perfil de OC: P0 (stock), P1, P2 (recomendado), P3 (maximo)"
+        required: true
+        default: "P2"
+      config:
+        description: "config: oem (modulos MIUI cargan) o defconfig (repo)"
+        required: true
+        default: "oem"
+  push:
+    branches:
+      - oc-miui
+
+env:
+  KERNEL_ARCH: "arm64"
+  KBUILD_BUILD_USER: "github-actions"
+  KBUILD_BUILD_HOST: "ci-server"
+
+jobs:
+  build:
+    name: Kernel OC + imagen MIUI-compatible
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex build-essential libssl-dev libelf-dev cpio kmod git zip curl ca-certificates jq \
+            wget libffi-dev zlib1g-dev libreadline-dev libsqlite3-dev libbz2-dev libncurses5-dev libgdbm-dev liblzma-dev tk-dev
+
+      - name: Clone crdroid Clang 11.0.1
+        run: |
+          git clone --depth=1 https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r428724.git /tmp/clang
+          /tmp/clang/bin/clang --version
+
+      - name: Clone LineageOS GCC 4.9
+        run: |
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git /tmp/gcc-aarch64
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git /tmp/gcc-arm
+
+      - name: Apply OC profile
+        run: |
+          bash oc-release/scripts/set-profile.sh "${{ github.event.inputs.profile || 'P2' }}" .
+          git --no-pager diff --stat -- drivers/
+
+      - name: Prepare config (MIUI module compatibility)
+        run: |
+          # La version tiene que ser EXACTA: 4.19.127-perf-g7288046673d5
+          sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 127/' Makefile
+          grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL)' Makefile
+
+          mkdir -p out
+          if [ "${{ github.event.inputs.config || 'oem' }}" = "oem" ]; then
+            # config exacta del kernel de MIUI que corre en el movil
+            # (CONFIG_MODVERSIONS=y => los CRC de los simbolos dependen de ella)
+            cp oc-release/config/device-config.txt out/.config
+          else
+            export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:/tmp/gcc-arm/bin:${PATH}"
+            export ARCH=${KERNEL_ARCH}
+            export CROSS_COMPILE="aarch64-linux-android-"
+            export CROSS_COMPILE_ARM32="arm-linux-androideabi-"
+            export CC="clang"
+            export CLANG_TRIPLE="aarch64-linux-gnu-"
+            make O=out ARCH=${ARCH} blossom_noksu_defconfig
+          fi
+
+          sed -i 's|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION="-perf-g7288046673d5"|' out/.config
+          sed -i 's|^CONFIG_LOCALVERSION_AUTO=.*|# CONFIG_LOCALVERSION_AUTO is not set|' out/.config
+
+      - name: Resolve config and check vermagic
+        run: |
+          export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:/tmp/gcc-arm/bin:${PATH}"
+          export ARCH=${KERNEL_ARCH}
+          export CROSS_COMPILE="aarch64-linux-android-"
+          export CROSS_COMPILE_ARM32="arm-linux-androideabi-"
+          export CC="clang"
+          export CLANG_TRIPLE="aarch64-linux-gnu-"
+
+          make O=out ARCH=${ARCH} olddefconfig
+          grep -E 'LOCALVERSION|CONFIG_MODVERSIONS|CONFIG_CLANG_VERSION|CONFIG_KERNEL_GZIP' out/.config
+
+          RELEASE=$(make O=out ARCH=${ARCH} kernelrelease | tail -1)
+          echo "kernelrelease = $RELEASE"
+          if [ "$RELEASE" != "4.19.127-perf-g7288046673d5" ]; then
+            echo "::error::La version $RELEASE no es la de MIUI: los modulos no cargaran"
+            exit 1
+          fi
+
+      - name: Build kernel
+        run: |
+          export PATH="/tmp/clang/bin:/tmp/gcc-aarch64/bin:/tmp/gcc-arm/bin:${PATH}"
+          export ARCH=${KERNEL_ARCH}
+          export CROSS_COMPILE="aarch64-linux-android-"
+          export CROSS_COMPILE_ARM32="arm-linux-androideabi-"
+          export CC="clang"
+          export CLANG_TRIPLE="aarch64-linux-gnu-"
+
+          make -j$(nproc) \
+            O=out \
+            ARCH=${ARCH} \
+            CC=clang \
+            CLANG_TRIPLE=${CLANG_TRIPLE} \
+            CROSS_COMPILE=${CROSS_COMPILE} \
+            CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} \
+            Image.gz 2>&1 | tee build.log
+
+          if [ ! -f out/arch/arm64/boot/Image.gz ]; then
+            echo "Image.gz no habilitado en la config: se compila Image y se comprime"
+            make -j$(nproc) O=out ARCH=${ARCH} CC=clang CLANG_TRIPLE=${CLANG_TRIPLE} \
+              CROSS_COMPILE=${CROSS_COMPILE} CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} Image 2>&1 | tee -a build.log
+            gzip -9 -c out/arch/arm64/boot/Image > out/arch/arm64/boot/Image.gz
+          fi
+
+          cp out/arch/arm64/boot/Image.gz .
+          ls -l Image.gz
+
+      - name: Check size and version string
+        run: |
+          SLOT=13866913
+          SIZE=$(stat -c%s Image.gz)
+          echo "Image.gz: $SIZE bytes (hueco original del boot.img: $SLOT)"
+          if [ "$SIZE" -gt "$SLOT" ]; then
+            echo "::warning::El kernel NO cabe en el hueco original: usa repack-boot.py --shift"
+          fi
+          echo "--- version string ---"
+          zcat out/arch/arm64/boot/Image.gz | strings | grep -m1 "Linux version"
+
+      - name: Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image.gz-${{ github.sha }}
+          path: Image.gz
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload config and build log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oc-build-info-${{ github.sha }}
+          path: |
+            build.log
+            out/.config
+          retention-days: 7

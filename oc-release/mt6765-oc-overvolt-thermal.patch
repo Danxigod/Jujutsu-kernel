@@ -1,0 +1,209 @@
+diff --git a/drivers/gpu/mediatek/gpufreq/mt6765/mtk_gpufreq_core.h b/drivers/gpu/mediatek/gpufreq/mt6765/mtk_gpufreq_core.h
+index 2018125d0..47056ada2 100644
+--- a/drivers/gpu/mediatek/gpufreq/mt6765/mtk_gpufreq_core.h
++++ b/drivers/gpu/mediatek/gpufreq/mt6765/mtk_gpufreq_core.h
+@@ -30,20 +30,35 @@
+ #define SEG2_GPU_DVFS_VSRAM1			SEG3_GPU_DVFS_VSRAM1
+ #define SEG2_GPU_DVFS_VSRAM2			SEG3_GPU_DVFS_VSRAM2
+ 
+-/**************************************************
++/*
+  * MT6765 segment_3 : GPU DVFS OPP table Setting
+- **************************************************/
+-#define SEG3_GPU_DVFS_FREQ0			(880000)	/* KHz */
+-#define SEG3_GPU_DVFS_FREQ1			(690000)	/* KHz */
+-#define SEG3_GPU_DVFS_FREQ2			(550000)	/* KHz */
++ *
++ * OC profile (Redmi 9C "angelica", GPU efuse segment = 3):
++ *   top bin 950 MHz = the maximum the /4 post divider can deliver
++ *   (POST_DIV_4_MAX_FREQ, hard ceiling of this driver).
++ *
++ * The volt column is only a hint that __mt_gpufreq_vcore_volt_switch()
++ * translates into a VCORE OPP request:
++ *   hint > 90000 -> VCORE_OPP_0 -> highest VCORE bin
++ *   hint > 80000 -> VCORE_OPP_1 -> also VCORE_OPP_0 (1 * 9 / 10 == 0)
++ *   hint >     0 -> VCORE_OPP_3 -> lowest VCORE bin
++ * VCORE_OPP_0 is the highest bin because mtk_dvfsrc_vcore_uv_table()
++ * reverses the firmware table (vopp_uv_tlb[num_vopp - opp - 1]).
++ * The stock 80000 hint therefore pinned the GPU to the LOWEST VCORE step
++ * (measured: Vcore 650 mV idle on the device), so it has to stay > 80000.
++ * VSRAM_GPU is hardwired to 875 mV on this SoC, its column is informational.
++ */
++#define SEG3_GPU_DVFS_FREQ0			(900000)	/* KHz */
++#define SEG3_GPU_DVFS_FREQ1			(780000)	/* KHz */
++#define SEG3_GPU_DVFS_FREQ2			(600000)	/* KHz */
+ 
+-#define SEG3_GPU_DVFS_VOLT0			(80000)		/* mV x 100 */
+-#define SEG3_GPU_DVFS_VOLT1			(57000)		/* mV x 100 */
+-#define SEG3_GPU_DVFS_VOLT2			(50200)		/* mV x 100 */
++#define SEG3_GPU_DVFS_VOLT0			(95000)		/* mV x 100 */
++#define SEG3_GPU_DVFS_VOLT1			(85000)		/* mV x 100 */
++#define SEG3_GPU_DVFS_VOLT2			(70000)		/* mV x 100 */
+ 
+-#define SEG3_GPU_DVFS_VSRAM0			(67500)		/* mV x 100 */
+-#define SEG3_GPU_DVFS_VSRAM1			(67500)		/* mV x 100 */
+-#define SEG3_GPU_DVFS_VSRAM2			(67500)		/* mV x 100 */
++#define SEG3_GPU_DVFS_VSRAM0			(87500)		/* mV x 100 */
++#define SEG3_GPU_DVFS_VSRAM1			(87500)		/* mV x 100 */
++#define SEG3_GPU_DVFS_VSRAM2			(87500)		/* mV x 100 */
+ 
+ /**************************************************
+  * MT6765T segment_4 : GPU DVFS OPP table Setting
+@@ -96,12 +111,17 @@
+ /**************************************************
+  * Clock Setting
+  **************************************************/
+-#define POST_DIV_2_MAX_FREQ			(19000000)
+-#define POST_DIV_2_MIN_FREQ			(75000)
+-#define POST_DIV_4_MAX_FREQ			(9500000)
+-#define POST_DIV_4_MIN_FREQ			(37500)
+-#define POST_DIV_8_MAX_FREQ			(4750000)
+-#define POST_DIV_8_MIN_FREQ			(18750)
++/*
++ * Post divider ranges in kHz (MT6765 MFGPLL VCO 1.5 - 3.8 GHz).
++ * POST_DIV_4_MAX_FREQ is the hard ceiling of the GPU DVFS on this driver:
++ * 950 MHz is the maximum output the /4 post divider can deliver.
++ */
++#define POST_DIV_2_MAX_FREQ			(1900000)
++#define POST_DIV_2_MIN_FREQ			(750000)
++#define POST_DIV_4_MAX_FREQ			(950000)
++#define POST_DIV_4_MIN_FREQ			(375000)
++#define POST_DIV_8_MAX_FREQ			(475000)
++#define POST_DIV_8_MIN_FREQ			(187500)
+ #define POST_DIV_16_MAX_FREQ		(237500)
+ #define POST_DIV_16_MIN_FREQ		(93750)
+ #define POST_DIV_MASK				(0x70000000)
+diff --git a/drivers/misc/mediatek/base/power/cpufreq_v1/src/mach/mt6765/mtk_cpufreq_opp_pv_table.h b/drivers/misc/mediatek/base/power/cpufreq_v1/src/mach/mt6765/mtk_cpufreq_opp_pv_table.h
+index 465f117db..c580fd118 100644
+--- a/drivers/misc/mediatek/base/power/cpufreq_v1/src/mach/mt6765/mtk_cpufreq_opp_pv_table.h
++++ b/drivers/misc/mediatek/base/power/cpufreq_v1/src/mach/mt6765/mtk_cpufreq_opp_pv_table.h
+@@ -172,7 +172,7 @@ static unsigned int c65tTbl[NR_FREQ * NR_MT_CPU_DVFS][ARRAY_COL_SIZE] = {
+ 
+ static unsigned int c65Tbl[NR_FREQ * NR_MT_CPU_DVFS][ARRAY_COL_SIZE] = {
+ 	/* Freq, Vproc, post_div, clk_div */
+-	{ 2301, 96, 1, 1 },	/* L */
++	{ 2401, 107, 1, 1 },	/* L */
+ 	{ 2215, 88, 1, 1 },
+ 	{ 2139, 81, 1, 1 },
+ 	{ 2074, 75, 1, 1 },
+diff --git a/drivers/misc/mediatek/base/power/cpufreq_v1/src/mach/mt6765/mtk_cpufreq_opp_table.h b/drivers/misc/mediatek/base/power/cpufreq_v1/src/mach/mt6765/mtk_cpufreq_opp_table.h
+index f18fb423a..fbf6f708c 100644
+--- a/drivers/misc/mediatek/base/power/cpufreq_v1/src/mach/mt6765/mtk_cpufreq_opp_table.h
++++ b/drivers/misc/mediatek/base/power/cpufreq_v1/src/mach/mt6765/mtk_cpufreq_opp_table.h
+@@ -329,7 +329,7 @@
+ 
+ /* C65 */
+ /* for DVFS OPP table L */
+-#define CPU_DVFS_FREQ0_L_C65    2301000    /* KHz */
++#define CPU_DVFS_FREQ0_L_C65    2401000    /* KHz */
+ #define CPU_DVFS_FREQ1_L_C65    2215000    /* KHz */
+ #define CPU_DVFS_FREQ2_L_C65    2139000    /* KHz */
+ #define CPU_DVFS_FREQ3_L_C65    2074000    /* KHz */
+@@ -383,7 +383,7 @@
+ #define CPU_DVFS_FREQ15_CCI_C65    300000    /* KHz */
+ 
+ /* for DVFS OPP table */
+-#define CPU_DVFS_VOLT0_VPROC_L_C65    111875          /* 10uV */
++#define CPU_DVFS_VOLT0_VPROC_L_C65    118750          /* 10uV */
+ #define CPU_DVFS_VOLT1_VPROC_L_C65    106875          /* 10uV */
+ #define CPU_DVFS_VOLT2_VPROC_L_C65    102500          /* 10uV */
+ #define CPU_DVFS_VOLT3_VPROC_L_C65     98750          /* 10uV */
+diff --git a/drivers/misc/mediatek/thermal/mt6765/inc/clatm_initcfg.h b/drivers/misc/mediatek/thermal/mt6765/inc/clatm_initcfg.h
+index 5baf2c959..624d86459 100644
+--- a/drivers/misc/mediatek/thermal/mt6765/inc/clatm_initcfg.h
++++ b/drivers/misc/mediatek/thermal/mt6765/inc/clatm_initcfg.h
+@@ -9,7 +9,12 @@
+ 
+ #define CLATM_SET_INIT_CFG			(1)
+ 
+-#define CLATM_INIT_CFG_0_TARGET_TJ		(75000)
++/*
++ * CATM / PHBP power budget targets. These are the temperatures where the
++ * framework starts cutting the CPU/GPU power budget. Raised together with
++ * the trip points so the throttle does not start at 65-75 C.
++ */
++#define CLATM_INIT_CFG_0_TARGET_TJ		(90000)
+ #define CLATM_INIT_CFG_0_EXIT_POINT		(10000)
+ #define CLATM_INIT_CFG_0_FIRST_STEP		(3960)
+ #define CLATM_INIT_CFG_0_THETA_RISE		(2)
+@@ -20,7 +25,7 @@
+ #define CLATM_INIT_CFG_0_MIN_GPU_PWR		(300)
+ #define CLATM_INIT_CFG_0_MAX_GPU_PWR		(2000)
+ 
+-#define CLATM_INIT_CFG_1_TARGET_TJ		(65000)
++#define CLATM_INIT_CFG_1_TARGET_TJ		(90000)
+ #define CLATM_INIT_CFG_1_EXIT_POINT		(10000)
+ #define CLATM_INIT_CFG_1_FIRST_STEP		(3000)
+ #define CLATM_INIT_CFG_1_THETA_RISE		(2)
+@@ -31,7 +36,7 @@
+ #define CLATM_INIT_CFG_1_MIN_GPU_PWR		(800)
+ #define CLATM_INIT_CFG_1_MAX_GPU_PWR		(2000)
+ 
+-#define CLATM_INIT_CFG_2_TARGET_TJ		(75000)
++#define CLATM_INIT_CFG_2_TARGET_TJ		(90000)
+ #define CLATM_INIT_CFG_2_EXIT_POINT		(10000)
+ #define CLATM_INIT_CFG_2_FIRST_STEP		(3960)
+ #define CLATM_INIT_CFG_2_THETA_RISE		(2)
+@@ -54,7 +59,7 @@
+ 
+ #define CLATM_INIT_HRTIMER_POLLING_DELAY	(50)
+ 
+-#define CLCTM_TARGET_TJ				(90000)
++#define CLCTM_TARGET_TJ				(95000)
+ #define CLCTM_TPCB_1				(47000)
+ #define CLCTM_TPCB_2				(51000)
+ #define CLCTM_EXIT_TJ				(CLCTM_TARGET_TJ - 10000)
+diff --git a/drivers/misc/mediatek/thermal/mt6765/inc/tzcpu_initcfg.h b/drivers/misc/mediatek/thermal/mt6765/inc/tzcpu_initcfg.h
+index cb2e42441..0f9aa2989 100644
+--- a/drivers/misc/mediatek/thermal/mt6765/inc/tzcpu_initcfg.h
++++ b/drivers/misc/mediatek/thermal/mt6765/inc/tzcpu_initcfg.h
+@@ -12,34 +12,40 @@
+ #define TZCPU_INITCFG_INTERVAL			(200)
+ #define TZCPU_INITCFG_NUM_TRIPS			(2)
+ 
++/*
++ * Thermal unlock profile (external cooler on the back cover):
++ * TRIP_0 stays at the hardware protection point (117 C) - that one is a
++ * hardware trip and cannot be moved. Every software trip is pushed 20 C up
++ * so the CPU keeps boosting instead of dropping to the throttle bins.
++ */
+ #define TZCPU_INITCFG_TRIP_0_TEMP		(117000)
+ #define TZCPU_INITCFG_TRIP_0_COOLER		"mtktscpu-sysrst"
+ 
+-#define TZCPU_INITCFG_TRIP_1_TEMP		(65000)
++#define TZCPU_INITCFG_TRIP_1_TEMP		(90000)
+ #define TZCPU_INITCFG_TRIP_1_COOLER		"cpu_adaptive_0"
+ 
+-#define TZCPU_INITCFG_TRIP_2_TEMP		(64000)
++#define TZCPU_INITCFG_TRIP_2_TEMP		(89000)
+ #define TZCPU_INITCFG_TRIP_2_COOLER		""
+ 
+-#define TZCPU_INITCFG_TRIP_3_TEMP		(63000)
++#define TZCPU_INITCFG_TRIP_3_TEMP		(88000)
+ #define TZCPU_INITCFG_TRIP_3_COOLER		""
+ 
+-#define TZCPU_INITCFG_TRIP_4_TEMP		(62000)
++#define TZCPU_INITCFG_TRIP_4_TEMP		(87000)
+ #define TZCPU_INITCFG_TRIP_4_COOLER		""
+ 
+-#define TZCPU_INITCFG_TRIP_5_TEMP		(60000)
++#define TZCPU_INITCFG_TRIP_5_TEMP		(85000)
+ #define TZCPU_INITCFG_TRIP_5_COOLER		""
+ 
+-#define TZCPU_INITCFG_TRIP_6_TEMP		(55000)
++#define TZCPU_INITCFG_TRIP_6_TEMP		(80000)
+ #define TZCPU_INITCFG_TRIP_6_COOLER		""
+ 
+-#define TZCPU_INITCFG_TRIP_7_TEMP		(50000)
++#define TZCPU_INITCFG_TRIP_7_TEMP		(75000)
+ #define TZCPU_INITCFG_TRIP_7_COOLER		""
+ 
+-#define TZCPU_INITCFG_TRIP_8_TEMP		(45000)
++#define TZCPU_INITCFG_TRIP_8_TEMP		(70000)
+ #define TZCPU_INITCFG_TRIP_8_COOLER		""
+ 
+-#define TZCPU_INITCFG_TRIP_9_TEMP		(40000)
++#define TZCPU_INITCFG_TRIP_9_TEMP		(65000)
+ #define TZCPU_INITCFG_TRIP_9_COOLER		""
+ 
+ 

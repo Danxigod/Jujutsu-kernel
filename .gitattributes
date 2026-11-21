@@ -1,0 +1,9 @@
+# El build del kernel se hace en Linux (GitHub Actions) y en bash de Git.
+# Con core.autocrlf=true en Windows estos ficheros se guardarian con CRLF
+# y bash daria error "bad interpreter: /bin/bash^M".
+/oc-release/scripts/*.sh text eol=lf
+/oc-release/scripts/*.py text eol=lf
+/oc-release/config/*.txt text eol=lf
+/oc-release/*.patch text eol=lf
+/oc-release/*.md text eol=lf
+/.github/workflows/*.yml text eol=lf

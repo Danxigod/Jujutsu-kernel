@@ -9,7 +9,12 @@
 
 #define CLATM_SET_INIT_CFG			(1)
 
-#define CLATM_INIT_CFG_0_TARGET_TJ		(75000)
+/*
+ * CATM / PHBP power budget targets. These are the temperatures where the
+ * framework starts cutting the CPU/GPU power budget. Raised together with
+ * the trip points so the throttle does not start at 65-75 C.
+ */
+#define CLATM_INIT_CFG_0_TARGET_TJ		(90000)
 #define CLATM_INIT_CFG_0_EXIT_POINT		(10000)
 #define CLATM_INIT_CFG_0_FIRST_STEP		(3960)
 #define CLATM_INIT_CFG_0_THETA_RISE		(2)
@@ -20,7 +25,7 @@
 #define CLATM_INIT_CFG_0_MIN_GPU_PWR		(300)
 #define CLATM_INIT_CFG_0_MAX_GPU_PWR		(2000)
 
-#define CLATM_INIT_CFG_1_TARGET_TJ		(65000)
+#define CLATM_INIT_CFG_1_TARGET_TJ		(90000)
 #define CLATM_INIT_CFG_1_EXIT_POINT		(10000)
 #define CLATM_INIT_CFG_1_FIRST_STEP		(3000)
 #define CLATM_INIT_CFG_1_THETA_RISE		(2)
@@ -31,7 +36,7 @@
 #define CLATM_INIT_CFG_1_MIN_GPU_PWR		(800)
 #define CLATM_INIT_CFG_1_MAX_GPU_PWR		(2000)
 
-#define CLATM_INIT_CFG_2_TARGET_TJ		(75000)
+#define CLATM_INIT_CFG_2_TARGET_TJ		(90000)
 #define CLATM_INIT_CFG_2_EXIT_POINT		(10000)
 #define CLATM_INIT_CFG_2_FIRST_STEP		(3960)
 #define CLATM_INIT_CFG_2_THETA_RISE		(2)
@@ -54,7 +59,7 @@
 
 #define CLATM_INIT_HRTIMER_POLLING_DELAY	(50)
 
-#define CLCTM_TARGET_TJ				(90000)
+#define CLCTM_TARGET_TJ				(95000)
 #define CLCTM_TPCB_1				(47000)
 #define CLCTM_TPCB_2				(51000)
 #define CLCTM_EXIT_TJ				(CLCTM_TARGET_TJ - 10000)

@@ -132,3 +132,14 @@ all.config
 
 # Kdevelop4
 *.kdev4
+
+#
+# Release OC (miui-oc workflow) - excepciones sobre las reglas globales
+#
+!.github/
+!oc-release/
+!oc-release/*.patch
+!oc-release/config/
+!oc-release/scripts/
+oc-release/backup/
+!.gitattributes

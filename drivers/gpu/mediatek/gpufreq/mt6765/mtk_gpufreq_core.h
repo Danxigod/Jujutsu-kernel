@@ -30,20 +30,35 @@
 #define SEG2_GPU_DVFS_VSRAM1			SEG3_GPU_DVFS_VSRAM1
 #define SEG2_GPU_DVFS_VSRAM2			SEG3_GPU_DVFS_VSRAM2
 
-/**************************************************
+/*
  * MT6765 segment_3 : GPU DVFS OPP table Setting
- **************************************************/
-#define SEG3_GPU_DVFS_FREQ0			(880000)	/* KHz */
-#define SEG3_GPU_DVFS_FREQ1			(690000)	/* KHz */
-#define SEG3_GPU_DVFS_FREQ2			(550000)	/* KHz */
+ *
+ * OC profile (Redmi 9C "angelica", GPU efuse segment = 3):
+ *   top bin 950 MHz = the maximum the /4 post divider can deliver
+ *   (POST_DIV_4_MAX_FREQ, hard ceiling of this driver).
+ *
+ * The volt column is only a hint that __mt_gpufreq_vcore_volt_switch()
+ * translates into a VCORE OPP request:
+ *   hint > 90000 -> VCORE_OPP_0 -> highest VCORE bin
+ *   hint > 80000 -> VCORE_OPP_1 -> also VCORE_OPP_0 (1 * 9 / 10 == 0)
+ *   hint >     0 -> VCORE_OPP_3 -> lowest VCORE bin
+ * VCORE_OPP_0 is the highest bin because mtk_dvfsrc_vcore_uv_table()
+ * reverses the firmware table (vopp_uv_tlb[num_vopp - opp - 1]).
+ * The stock 80000 hint therefore pinned the GPU to the LOWEST VCORE step
+ * (measured: Vcore 650 mV idle on the device), so it has to stay > 80000.
+ * VSRAM_GPU is hardwired to 875 mV on this SoC, its column is informational.
+ */
+#define SEG3_GPU_DVFS_FREQ0			(900000)	/* KHz */
+#define SEG3_GPU_DVFS_FREQ1			(780000)	/* KHz */
+#define SEG3_GPU_DVFS_FREQ2			(600000)	/* KHz */
 
-#define SEG3_GPU_DVFS_VOLT0			(80000)		/* mV x 100 */
-#define SEG3_GPU_DVFS_VOLT1			(57000)		/* mV x 100 */
-#define SEG3_GPU_DVFS_VOLT2			(50200)		/* mV x 100 */
+#define SEG3_GPU_DVFS_VOLT0			(95000)		/* mV x 100 */
+#define SEG3_GPU_DVFS_VOLT1			(85000)		/* mV x 100 */
+#define SEG3_GPU_DVFS_VOLT2			(70000)		/* mV x 100 */
 
-#define SEG3_GPU_DVFS_VSRAM0			(67500)		/* mV x 100 */
-#define SEG3_GPU_DVFS_VSRAM1			(67500)		/* mV x 100 */
-#define SEG3_GPU_DVFS_VSRAM2			(67500)		/* mV x 100 */
+#define SEG3_GPU_DVFS_VSRAM0			(87500)		/* mV x 100 */
+#define SEG3_GPU_DVFS_VSRAM1			(87500)		/* mV x 100 */
+#define SEG3_GPU_DVFS_VSRAM2			(87500)		/* mV x 100 */
 
 /**************************************************
  * MT6765T segment_4 : GPU DVFS OPP table Setting
@@ -96,12 +111,17 @@
 /**************************************************
  * Clock Setting
  **************************************************/
-#define POST_DIV_2_MAX_FREQ			(19000000)
-#define POST_DIV_2_MIN_FREQ			(75000)
-#define POST_DIV_4_MAX_FREQ			(9500000)
-#define POST_DIV_4_MIN_FREQ			(37500)
-#define POST_DIV_8_MAX_FREQ			(4750000)
-#define POST_DIV_8_MIN_FREQ			(18750)
+/*
+ * Post divider ranges in kHz (MT6765 MFGPLL VCO 1.5 - 3.8 GHz).
+ * POST_DIV_4_MAX_FREQ is the hard ceiling of the GPU DVFS on this driver:
+ * 950 MHz is the maximum output the /4 post divider can deliver.
+ */
+#define POST_DIV_2_MAX_FREQ			(1900000)
+#define POST_DIV_2_MIN_FREQ			(750000)
+#define POST_DIV_4_MAX_FREQ			(950000)
+#define POST_DIV_4_MIN_FREQ			(375000)
+#define POST_DIV_8_MAX_FREQ			(475000)
+#define POST_DIV_8_MIN_FREQ			(187500)
 #define POST_DIV_16_MAX_FREQ		(237500)
 #define POST_DIV_16_MIN_FREQ		(93750)
 #define POST_DIV_MASK				(0x70000000)
