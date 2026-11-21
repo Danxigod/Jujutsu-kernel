@@ -82,7 +82,8 @@ jobs:
             export CROSS_COMPILE_ARM32="arm-linux-androideabi-"
             export CC="clang"
             export CLANG_TRIPLE="aarch64-linux-gnu-"
-            make O=out ARCH=${ARCH} blossom_noksu_defconfig
+            make O=out ARCH=${ARCH} CC=clang CLANG_TRIPLE=${CLANG_TRIPLE} \
+              CROSS_COMPILE=${CROSS_COMPILE} CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} blossom_noksu_defconfig
           fi
 
           sed -i 's|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION="-perf-g7288046673d5"|' out/.config
@@ -97,10 +98,12 @@ jobs:
           export CC="clang"
           export CLANG_TRIPLE="aarch64-linux-gnu-"
 
-          make O=out ARCH=${ARCH} olddefconfig
+          make O=out ARCH=${ARCH} CC=clang CLANG_TRIPLE=${CLANG_TRIPLE} \
+            CROSS_COMPILE=${CROSS_COMPILE} CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} olddefconfig
           grep -E 'LOCALVERSION|CONFIG_MODVERSIONS|CONFIG_CLANG_VERSION|CONFIG_KERNEL_GZIP' out/.config
 
-          RELEASE=$(make O=out ARCH=${ARCH} kernelrelease | tail -1)
+          # kernelrelease: hay que filtrar los mensajes de make ("Entering/Leaving directory")
+          RELEASE=$(make -s O=out ARCH=${ARCH} kernelrelease 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
           echo "kernelrelease = $RELEASE"
           if [ "$RELEASE" != "4.19.127-perf-g7288046673d5" ]; then
             echo "::error::La version $RELEASE no es la de MIUI: los modulos no cargaran"

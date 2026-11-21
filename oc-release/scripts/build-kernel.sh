@@ -66,14 +66,17 @@ else
 	echo "== CONFIG_HYBRID_CPU_DVFS sigue como en la config de MIUI (tabla OPP)"
 fi
 
-make O=out ARCH=arm64 olddefconfig >/dev/null
+make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+	CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+	olddefconfig >/dev/null
 
 echo "== Comprobaciones de la config"
-for opt in LOCALVERSION LOCALVERSION_AUTO MODVERSIONS MODULE_SIG TRIM_UNUSED_KSYMS; do
+for opt in LOCALVERSION LOCALVERSION_AUTO MODVERSIONS MODULE_SIG TRIM_UNUSED_KSYMS CLANG_VERSION; do
 	printf '   %-22s %s\n' "$opt" "$(grep -E "^(CONFIG_$opt=|# CONFIG_$opt )" out/.config || echo '(no esta)')"
 done
 
-RELEASE="$(make O=out ARCH=arm64 kernelrelease | tail -1)"
+# kernelrelease: make mete sus mensajes en stdout, hay que filtrarlos
+RELEASE="$(make -s O=out ARCH=arm64 kernelrelease 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | tail -1)"
 echo "== kernelrelease = $RELEASE"
 if [ "$RELEASE" != "4.19.127-perf-g7288046673d5" ]; then
 	echo "AVISO: la version no es la de MIUI, los modulos de /vendor no cargaran" >&2
