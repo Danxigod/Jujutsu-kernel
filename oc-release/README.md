@@ -176,12 +176,11 @@ El repo `jujutsu-kernel` trae el workflow **"MIUI OC build (angelica)"**
 4. Compila con clang 11.0.1 (el mismo `CONFIG_CLANG_VERSION=110001` del móvil) y sube
    `Image.gz` + `build.log` + `.config` como artefactos.
 
-Para usarlo:
+La rama `oc-miui` del repo ya lleva el workflow y los scripts. Para publicarla:
 
 ```bash
 cd jujutsu-kernel
-git add .github/workflows/miui-oc.yml oc-release/
-git commit -m "MIUI OC build workflow"
+git checkout oc-miui
 git push origin oc-miui
 ```
 
