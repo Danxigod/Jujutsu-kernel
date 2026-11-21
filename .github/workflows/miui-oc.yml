@@ -8,9 +8,9 @@ on:
         required: true
         default: "P2"
       config:
-        description: "config: oem (modulos MIUI cargan) o defconfig (repo)"
+        description: "config: defconfig (el del repo, recomendado) u oem (config de MIUI, experimental)"
         required: true
-        default: "oem"
+        default: "defconfig"
   push:
     branches:
       - oc-miui
@@ -71,7 +71,7 @@ jobs:
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL)' Makefile
 
           mkdir -p out
-          if [ "${{ github.event.inputs.config || 'oem' }}" = "oem" ]; then
+          if [ "${{ github.event.inputs.config || 'defconfig' }}" = "oem" ]; then
             # config exacta del kernel de MIUI que corre en el movil
             # (CONFIG_MODVERSIONS=y => los CRC de los simbolos dependen de ella)
             cp oc-release/config/device-config.txt out/.config
@@ -100,7 +100,8 @@ jobs:
 
           make O=out ARCH=${ARCH} CC=clang CLANG_TRIPLE=${CLANG_TRIPLE} \
             CROSS_COMPILE=${CROSS_COMPILE} CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32} olddefconfig
-          grep -E 'LOCALVERSION|CONFIG_MODVERSIONS|CONFIG_CLANG_VERSION|CONFIG_KERNEL_GZIP' out/.config
+          cp out/.config kernel.config
+          grep -E 'LOCALVERSION|CONFIG_MODVERSIONS|CONFIG_CLANG_VERSION|CONFIG_KERNEL_GZIP|CONFIG_SYSFS' out/.config
 
           # kernelrelease: hay que filtrar los mensajes de make ("Entering/Leaving directory")
           RELEASE=$(make -s O=out ARCH=${ARCH} kernelrelease 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
@@ -164,5 +165,6 @@ jobs:
           name: oc-build-info-${{ github.sha }}
           path: |
             build.log
-            out/.config
+            kernel.config
+          include-hidden-files: true
           retention-days: 7

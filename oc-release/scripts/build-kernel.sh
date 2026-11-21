@@ -1,14 +1,27 @@
 #!/usr/bin/env bash
 # build-kernel.sh - compila el kernel con TODAS las cosas que necesita MIUI
-# Uso: ./build-kernel.sh [ruta/al/arbol] [--hybrid]
+# Uso: ./build-kernel.sh [ruta/al/arbol] [--hybrid] [--oem-config] [--defconfig NOMBRE]
 #   --hybrid  fuerza CONFIG_HYBRID_CPU_DVFS=y (la tabla SRAM manda en vez de la tabla OPP).
 #             No es necesario: el parche actualiza las dos tablas.
+#   --oem-config  usa el /proc/config.gz del movil (NO recomendado: es de otro kernel
+#             4.19.127 y este arbol es 4.19.275; compila con MODVERSIONS=y y rompe CRC).
+#   --defconfig NOMBRE  defconfig del repo (por defecto blossom_noksu_defconfig).
 set -euo pipefail
 
-TREE="${1:-}"
+TREE=""
 HYBRID=0
+CONFIG_MODE="defconfig"
+DEFCONFIG="blossom_noksu_defconfig"
 for a in "$@"; do
-	[ "$a" = "--hybrid" ] && HYBRID=1
+	case "$a" in
+	--hybrid) HYBRID=1 ;;
+	--oem-config) CONFIG_MODE="oem" ;;
+	--defconfig) ;;
+	-*) ;;
+	*)
+		if [ -z "$TREE" ] && [ -f "$a/Makefile" ]; then TREE="$a"; else DEFCONFIG="$a"; fi
+		;;
+	esac
 done
 
 if [ -z "$TREE" ]; then
@@ -19,7 +32,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_SRC="$SCRIPT_DIR/../config/device-config.txt"
 
 [ -f "$TREE/Makefile" ] || { echo "Arbol de kernel no valido: $TREE" >&2; exit 1; }
-[ -f "$CONFIG_SRC" ] || { echo "Falta la config del movil: $CONFIG_SRC" >&2; exit 1; }
+[ "$CONFIG_MODE" = "oem" ] && { [ -f "$CONFIG_SRC" ] || { echo "Falta la config del movil: $CONFIG_SRC" >&2; exit 1; }; }
 
 # ---------------------------------------------------------------- toolchain
 if ! command -v clang >/dev/null 2>&1; then
@@ -51,11 +64,19 @@ else
 	echo "== Version espiada a 4.19.127 (respaldo en Makefile.orig-version)"
 fi
 
-# --------------------------------------------------- 2) config del movil
+# --------------------------------------------------- 2) config
 mkdir -p "$TREE/out"
-cp "$CONFIG_SRC" "$TREE/.config"
-cp "$CONFIG_SRC" "$TREE/out/.config"
 cd "$TREE"
+
+if [ "$CONFIG_MODE" = "oem" ]; then
+	cp "$CONFIG_SRC" "$TREE/out/.config"
+	echo "== Config: la del movil (MODVERSIONS=y, experimental)"
+else
+	make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+		CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+		"$DEFCONFIG" >/dev/null
+	echo "== Config: $DEFCONFIG (MODVERSIONS=n: los modulos de /vendor cargan igual)"
+fi
 
 ./scripts/config --file out/.config --set-str LOCALVERSION "-perf-g7288046673d5"
 ./scripts/config --file out/.config --disable LOCALVERSION_AUTO
@@ -63,7 +84,7 @@ if [ "$HYBRID" = "1" ]; then
 	./scripts/config --file out/.config --enable HYBRID_CPU_DVFS
 	echo "== CONFIG_HYBRID_CPU_DVFS=y (tabla SRAM)"
 else
-	echo "== CONFIG_HYBRID_CPU_DVFS sigue como en la config de MIUI (tabla OPP)"
+	echo "== CONFIG_HYBRID_CPU_DVFS sin tocar"
 fi
 
 make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
